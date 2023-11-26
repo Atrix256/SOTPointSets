@@ -306,7 +306,17 @@ void GeneratePointsInSquare(int numPoints, int numIterations, int batchSize, con
 			// update batchDirections
 			for (size_t i = 0; i < numPoints; ++i)
 			{
+				// TODO: calculate width of square at this point!
+				float dirabsx = std::abs(direction[0]);
+				float dirabsy = std::abs(direction[1]);
+				float hypotneuse = 1.0f;
+				if (dirabsx > dirabsy)
+					hypotneuse = 1.0f / dirabsx;
+				else
+					hypotneuse = 1.0f / dirabsy;
+
 				float targetProjection = ((float(i) + 0.5f) / float(numPoints)) * 2.0f - 1.0f;
+				targetProjection *= hypotneuse;
 
 				float projDiff = targetProjection - batchData.projections[batchData.sorted[i]];
 
@@ -358,8 +368,8 @@ int main(int argc, char** argv)
 {
 	_mkdir("out");
 
-	//GeneratePointsInSquare(1000, 100, 16, "out/square", 100);
-	GeneratePointsInCircle(1000, 10000, 16, "out/circle", 100);
+	GeneratePointsInSquare(1000, 10000, 64, "out/square", 10);
+	//GeneratePointsInCircle(1000, 100, 16, "out/circle", 100);
 
 	return 0;
 }
@@ -377,5 +387,6 @@ TODO:
 
 Blog Post:
 * show a gif of the full 100 steps making noise?
+* link to sliced optimal transport sampling. Also the more advanced one?
 
 */
