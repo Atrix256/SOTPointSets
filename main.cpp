@@ -128,6 +128,7 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 	std::vector<BatchData> allBatchData(batchSize, BatchData(numPoints));
 
 	// For each iteration
+	int lastPercent = -1;
 	for (int iterationIndex = 0; iterationIndex < numIterations; ++iterationIndex)
 	{
 		// Write out progress
@@ -204,9 +205,15 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 			totalDistance += std::sqrt(adjust.x * adjust.x + adjust.y * adjust.y);
 		}
 
-		printf("[%i] %f\n", iterationIndex, totalDistance / float(numPoints));
-		fprintf(file, "\"%i\",\"%f\"\n", iterationIndex, totalDistance / float(numPoints));
+		int percent = int(100.0f * float(iterationIndex) / float(numIterations - 1));
+		if (percent != lastPercent)
+		{
+			lastPercent = percent;
+			printf("\r[%i%%] %f", percent, totalDistance / float(numPoints));
+			fprintf(file, "\"%i\",\"%f\"\n", iterationIndex, totalDistance / float(numPoints));
+		}
 	}
+	printf("\n");
 
 	fclose(file);
 
@@ -215,14 +222,32 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 
 	// report how long this took
 	float elpasedSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
-	printf("\n%0.2f seconds\n\n", elpasedSeconds);
+	printf("%0.2f seconds\n\n", elpasedSeconds);
 }
 
 int main(int argc, char** argv)
 {
 	_mkdir("out");
 
-	// Points in square
+
+	// Points in square - batch size 1
+	{
+		GeneratePoints(1000, 6400, 1, "out/batch1_square", 5,
+			[](float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+	}
+
+	// Points in square - batch size 64
 	{
 		GeneratePoints(1000, 100, 64, "out/square", 5,
 			[] (float y, const float2& direction)
@@ -237,10 +262,29 @@ int main(int argc, char** argv)
 				return x * 2.0f;
 			}
 		);
-
 	}
 
-	// Points in circle
+	// Points in circle  - batch size 1
+	{
+		// make the Numerical ICDF
+		ICDF circleICDF = ICDFFromCDF(-0.5f, 0.5f, 1000, UnitCircleCDF);
+
+		GeneratePoints(1000, 6400, 1, "out/batch1_circle", 5,
+			[&](float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = circleICDF.InverseCDF(y);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+	}
+
+	// Points in circle  - batch size 64
 	{
 		// make the Numerical ICDF
 		ICDF circleICDF = ICDFFromCDF(-0.5f, 0.5f, 1000, UnitCircleCDF);
@@ -266,7 +310,6 @@ int main(int argc, char** argv)
 /*
 TODO:
 * compare vs MBC.
-* is overconvergence a problem?
 * density map for both circle and square. numerical ICDF!
 
 
@@ -280,9 +323,12 @@ NOTES:
 Blog Post:
 * points in circle
  * mention how you can add a z component to make a normalized vector and that it will then be a cosine weighted hemispherical point
+ * show average movement graph, maybe compare against golden ratio angles at that point?
 * then points in square
- * show the DFT and that it tiles decently!
+ * show the DFT and that it tiles decently! average movement graph too?
  * note that it's possible to get points outside of the square. up to you if you want to wrap or clamp.  I don't do either, but when drawing the points on the images, i clamp.
+* using a batch of 1 doesn't look like a good idea (pixels are erratic in batch1_circle and square)
+ * over convergence doesn't seem to be a problem, which is nice.
 * then mixed density
 * show derivation of square CDF? and circle.
 * show a gif of the full 100 steps making noise? we could randomly color the points, so you can follow points by color
@@ -292,6 +338,7 @@ Blog Post:
 * sliced OT also does multiclass. maybe mention it instead of implementing it? or is it worth implementing?
 * the way I did circle ICDF is different than what the sliced OT sampling paper does. They have a numerical ICDF in the end like me, they made with gradient descent. I make a large table with linear interpolation. Seems to work!
  * mention you could make a CDF from a PDF, if it's hard to make the CDF.
+* could play around with batch size and see if there are trade offs, and if overconvergence becomes a problem at 1
 Next: figure out how to use sliced OT to make noise masks
 */
 

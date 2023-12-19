@@ -1,6 +1,8 @@
 import sys
 from PIL import Image
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 import glob
 
 fileNames = glob.glob("out/*.png")
@@ -43,3 +45,22 @@ for fileName in fileNames:
         for j in range(11):
             imOut.paste(loadedImage, (i*loadedImage.size[0],j*loadedImage.size[1]))
     imOut.save(fileName + ".11x11.png")
+
+
+fileNames = glob.glob("out/*.csv")
+
+for fileName in fileNames:
+    print(fileName)
+
+    fig, ax = plt.subplots()
+    df = pd.read_csv(fileName).drop(['Iteration'], axis=1)
+
+    ax.plot(df['Avg. Movement'], label="Avg. Movement")
+
+    plt.title('Log/Log Average Movement Each Iteration: ' + fileName)
+
+    fig.axes[0].set_xscale('log', base=2)
+    fig.axes[0].set_yscale('log', base=2)
+
+    fig.tight_layout()
+    fig.savefig(fileName + ".graph.png", bbox_inches='tight')
