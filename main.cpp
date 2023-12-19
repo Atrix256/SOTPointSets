@@ -268,8 +268,6 @@ int main(int argc, char** argv)
 
 /*
 TODO:
-* does the BN tile?
-* what's the DFT look like?
 * what to do about points outside the square? clamp? wrap?
 * density map for both circle and square. numerical ICDF!
 * the make the generated points code have a struct for X,Y? instead of just a single array of floats. or make it be like [][2]?
@@ -287,7 +285,8 @@ Blog Post:
 * points in circle
  * mention how you can add a z component to make a normalized vector and that it will then be a cosine weighted hemispherical point
 * then points in square
-* the mixed density
+ * show the DFT and that it tiles decently!
+* then mixed density
 * show derivation of square CDF? and circle.
 * show a gif of the full 100 steps making noise? we could randomly color the points, so you can follow points by color
 * link to sliced optimal transport sampling. Also the more advanced one? (which is...??)
