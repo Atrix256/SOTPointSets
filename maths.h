@@ -17,6 +17,22 @@ inline float Length(const float2& f)
 	return std::sqrt(Dot(f, f));
 }
 
+// assumes the points are in [0,1]^2
+inline float DistanceWrap(const float2& a, const float2& b)
+{
+	float2 diff;
+
+	diff.x = std::abs(a.x - b.x);
+	if (diff.x > 0.5f)
+		diff.x = 1.0f - diff.x;
+
+	diff.y = std::abs(a.y - b.y);
+	if (diff.y > 0.5f)
+		diff.y = 1.0f - diff.y;
+
+	return Length(diff);
+}
+
 inline float2 Normalize(const float2& f)
 {
 	float len = Length(f);

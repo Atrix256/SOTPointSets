@@ -225,10 +225,73 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 	printf("%0.2f seconds\n\n", elpasedSeconds);
 }
 
+void MitchellsBestCandidate(int numPoints, const char* baseFileName)
+{
+	// get the timestamp of when this started
+	std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
+
+	printf("==================================\n%s\n==================================\n", baseFileName);
+
+	std::mt19937 rng = GetRNG(0);
+	std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+	std::vector<float2> points(numPoints);
+
+	int lastPercent = -1;
+	for (int pointIndex = 0; pointIndex < numPoints; ++pointIndex)
+	{
+		int numCandidates = pointIndex + 1;
+
+		float2 bestCandidate = float2{ 0.0f, 0.0f };
+		float bestCandidateScore = -FLT_MAX;
+
+		for (int candidateIndex = 0; candidateIndex < numCandidates; ++candidateIndex)
+		{
+			float2 candidate = float2{ dist(rng), dist(rng) };
+
+			float minDistance = FLT_MAX;
+			for (int testIndex = 0; testIndex < pointIndex; ++testIndex)
+				minDistance = std::min(minDistance, DistanceWrap(candidate, points[testIndex]));
+
+			if (minDistance > bestCandidateScore)
+			{
+				bestCandidateScore = minDistance;
+				bestCandidate = candidate;
+			}
+		}
+
+		points[pointIndex] = bestCandidate;
+
+		int percent = int(100.0f * float(pointIndex) / float(numPoints - 1));
+		if (percent != lastPercent)
+		{
+			lastPercent = percent;
+			printf("\r[%i%%]", percent);
+		}
+	}
+	printf("\n");
+
+	// remap all the points from [0,1] to [-1,1]
+	for (float2& p : points)
+	{
+		p.x = p.x * 2.0f - 1.0f;
+		p.y = p.y * 2.0f - 1.0f;
+	}
+
+	// Write out the final results
+	SavePointSet(points, baseFileName, 1, 1);
+
+	// report how long this took
+	float elpasedSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
+	printf("%0.2f seconds\n\n", elpasedSeconds);
+}
+
 int main(int argc, char** argv)
 {
 	_mkdir("out");
 
+	// Mitchell's best candidate blue noise
+	MitchellsBestCandidate(1000, "out/MBC");
 
 	// Points in square - batch size 1
 	{
@@ -309,16 +372,8 @@ int main(int argc, char** argv)
 
 /*
 TODO:
-* compare vs MBC.
 * density map for both circle and square. numerical ICDF!
-
-
-TODO:
-2) in a circle, using golden ratio + initial RNG. see if it converges faster? could also compare stratified points vs pure white noise.
-2.5) maybe try all 4 combos: (uniform | stratified) x (uniform | golden ratio)
-
-NOTES:
-
+* angles in a circle, using golden ratio + initial RNG to see if it converges faster or better?
 
 Blog Post:
 * points in circle
@@ -327,6 +382,7 @@ Blog Post:
 * then points in square
  * show the DFT and that it tiles decently! average movement graph too?
  * note that it's possible to get points outside of the square. up to you if you want to wrap or clamp.  I don't do either, but when drawing the points on the images, i clamp.
+ * MBC looks to be higher quality! But, i don't think it can do varying density like sliced OT can.
 * using a batch of 1 doesn't look like a good idea (pixels are erratic in batch1_circle and square)
  * over convergence doesn't seem to be a problem, which is nice.
 * then mixed density
