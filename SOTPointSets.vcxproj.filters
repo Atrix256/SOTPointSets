@@ -6,5 +6,8 @@
   <ItemGroup>
     <ClInclude Include="stb\stb_image.h" />
     <ClInclude Include="stb\stb_image_write.h" />
+    <ClInclude Include="squarecdf.h" />
+    <ClInclude Include="NumericalICDF.h" />
+    <ClInclude Include="maths.h" />
   </ItemGroup>
 </Project>

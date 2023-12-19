@@ -16,22 +16,9 @@ static const int c_pointImageSize = 256;
 #include <stdio.h>
 #include <chrono>
 
-inline float Lerp(float A, float B, float t)
-{
-	return A * (1.0f - t) + B * t;
-}
+#include "squarecdf.h"
+#include "NumericalICDF.h"
 
-template <typename T>
-inline float Clamp(T value, T themin, T themax)
-{
-	if (value <= themin)
-		return themin;
-
-	if (value >= themax)
-		return themax;
-
-	return value;
-}
 
 std::mt19937 GetRNG(int index)
 {
@@ -44,6 +31,21 @@ std::mt19937 GetRNG(int index)
 	return ret;
 }
 
+// Circle is centered at (0,0) with radius 0.5
+float UnitCircleCDF(float x)
+{
+	static const float c_circleArea = c_pi / 4.0f;
+
+	// Calculate the area of the circle in [0,x]
+	float ret = x * std::sqrt(0.25f - x * x) + std::asin(2.0f * x) / 4.0f;
+
+	// Note: this is the PDF
+	//float ret = 2.0f * std::sqrt(0.25f - x * x);
+
+	// Divide by the total area to make this a PDF (integrate to 1.0)
+	return ret / c_circleArea;
+}
+
 void SavePointSet(const std::vector<float>& points, const char* baseFileName, int index, int total)
 {
 	// Write out points in text
@@ -53,7 +55,7 @@ void SavePointSet(const std::vector<float>& points, const char* baseFileName, in
 		FILE* file = nullptr;
 		fopen_s(&file, fileName, "wb");
 
-		fprintf(file, "float pointsInCircle[] =\n{\n");
+		fprintf(file, "float points[] =\n{\n");
 		
 		for (size_t index = 0; index < points.size() / 2; ++index)
 			fprintf(file, "    %ff, %ff,\n", points[index * 2 + 0], points[index * 2 + 1]);
@@ -92,6 +94,9 @@ void GeneratePointsInCircle(int numPoints, int numIterations, int batchSize, con
 	sprintf(outputFileNameCSV, "%s.csv", baseFileName);
 	fopen_s(&file, outputFileNameCSV, "wb");
 	fprintf(file, "\"Iteration\",\"Avg. Movement\"\n");
+
+	// make the Numerical ICDF
+	ICDF circleICDF = ICDFFromCDF(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
 	// Generate the starting points
 	std::vector<float> points(numPoints * 2);
@@ -141,7 +146,7 @@ void GeneratePointsInCircle(int numPoints, int numIterations, int batchSize, con
 			std::mt19937 rng = GetRNG(iterationIndex * batchSize + batchIndex);
 			std::normal_distribution<float> distNormal(0.0f, 1.0f);
 
-			// Make a uniform random unit vector by generating23 normal distributed values and normalizing the result.
+			// Make a uniform random unit vector by generating 2 normal distributed values and normalizing the result.
 			float direction[2];
 			direction[0] = distNormal(rng);
 			direction[1] = distNormal(rng);
@@ -155,7 +160,6 @@ void GeneratePointsInCircle(int numPoints, int numIterations, int batchSize, con
 				batchData.projections[i] =
 					direction[0] * points[i * 2 + 0] +
 					direction[1] * points[i * 2 + 1];
-
 			}
 
 			// sort the projections
@@ -169,7 +173,12 @@ void GeneratePointsInCircle(int numPoints, int numIterations, int batchSize, con
 			// update batchDirections
 			for (size_t i = 0; i < numPoints; ++i)
 			{
-				float targetProjection = ((float(i) + 0.5f) / float(numPoints)) * 2.0f - 1.0f;
+				// Note: circle is from -0.5 to +0.5
+				float targetProjection = ((float(i) + 0.5f) / float(numPoints)) - 0.5f;
+				targetProjection = circleICDF.InverseCDF(targetProjection);
+
+				// Uncomment this if you want to map it back to [-1,+1]
+				targetProjection = targetProjection * 2.0f;
 
 				float projDiff = targetProjection - batchData.projections[batchData.sorted[i]];
 
@@ -270,7 +279,7 @@ void GeneratePointsInSquare(int numPoints, int numIterations, int batchSize, con
 		}
 
 		// Do the batches in parallel
-		#pragma omp parallel for
+		#pragma omp parallel for 
 		for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex)
 		{
 			BatchData& batchData = allBatchData[batchIndex];
@@ -278,7 +287,7 @@ void GeneratePointsInSquare(int numPoints, int numIterations, int batchSize, con
 			std::mt19937 rng = GetRNG(iterationIndex * batchSize + batchIndex);
 			std::normal_distribution<float> distNormal(0.0f, 1.0f);
 
-			// Make a uniform random unit vector by generating23 normal distributed values and normalizing the result.
+			// Make a uniform random unit vector by generating 2 normal distributed values and normalizing the result.
 			float direction[2];
 			direction[0] = distNormal(rng);
 			direction[1] = distNormal(rng);
@@ -292,7 +301,6 @@ void GeneratePointsInSquare(int numPoints, int numIterations, int batchSize, con
 				batchData.projections[i] =
 					direction[0] * points[i * 2 + 0] +
 					direction[1] * points[i * 2 + 1];
-
 			}
 
 			// sort the projections
@@ -306,17 +314,12 @@ void GeneratePointsInSquare(int numPoints, int numIterations, int batchSize, con
 			// update batchDirections
 			for (size_t i = 0; i < numPoints; ++i)
 			{
-				// TODO: calculate width of square at this point!
-				float dirabsx = std::abs(direction[0]);
-				float dirabsy = std::abs(direction[1]);
-				float hypotneuse = 1.0f;
-				if (dirabsx > dirabsy)
-					hypotneuse = 1.0f / dirabsx;
-				else
-					hypotneuse = 1.0f / dirabsy;
+				// Note: square is from -0.5 to +0.5
+				float targetProjection = ((float(i) + 0.5f) / float(numPoints)) - 0.5f;
+				targetProjection = Square::InverseCDF(targetProjection, float2{ direction[0], direction[1] });
 
-				float targetProjection = ((float(i) + 0.5f) / float(numPoints)) * 2.0f - 1.0f;
-				targetProjection *= hypotneuse;
+				// Uncomment this if you want to map it back to [-1,+1]
+				targetProjection = targetProjection * 2.0f;
 
 				float projDiff = targetProjection - batchData.projections[batchData.sorted[i]];
 
@@ -368,15 +371,31 @@ int main(int argc, char** argv)
 {
 	_mkdir("out");
 
-	GeneratePointsInSquare(1000, 10000, 64, "out/square", 10);
-	//GeneratePointsInCircle(1000, 100, 16, "out/circle", 100);
+	GeneratePointsInSquare(1000, 100, 64, "out/square", 20);
+	GeneratePointsInCircle(1000, 100, 16, "out/circle", 20);
 
 	return 0;
 }
+/*
+TODO: could try making things in new gigi editor to test it, also doing these point sets. leave parser for another time.
+
+*/
+
+// TODO: combine GeneratePointsInSquare into a function that takes an ICDF lambda!
+// TODO: fix blue noise points to be -1 to 1 i think?
+// TODO: does the BN tile?
+// TODO; what's the DFT look like?
+// TODO: what to do about points outside the square? clamp? wrap?
+// TODO: circle not working well?! need ICDF.
+// TODO: density map for both circle and square. numerical ICDF!
+// TODO: the make the generated points code have a struct for X,Y? instead of just a single array of floats. or make it be like [][2]?
 
 /*
 TODO:
 - need to solve the thing about all the points going to the egdes! squaring the projection to push them towards the center wasn't the fix. it made a lot of points go to the center!
+- compare vs MBC.
+- note that the paper has a different way to do circular CDF than you do.
+- look for todos
 
 TODO:
 1) in a circle. mention how you can make a z coordinate to make it cosine weighted hemispherical points! is overconvergence a problem?
@@ -385,8 +404,15 @@ TODO:
 3) in a square. how to?
 4) using a black and white image as a density guide for the dots
 
-Blog Post:
-* show a gif of the full 100 steps making noise?
-* link to sliced optimal transport sampling. Also the more advanced one?
+NOTES:
 
+
+Blog Post:
+* show derivation of square CDF? and circle if we make it.
+* show a gif of the full 100 steps making noise?
+* link to sliced optimal transport sampling. Also the more advanced one? (which is...??)
+ * sliced OT sampling http://www.geometry.caltech.edu/pubs/PBCIW+20.pdf
+ * more advanced: https://dl.acm.org/doi/pdf/10.1145/3550454.3555484
+* sliced OT also does multiclass. maybe mention it instead of implementing it? or is it worth implementing?
 */
+
