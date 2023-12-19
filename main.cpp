@@ -82,156 +82,13 @@ void SavePointSet(const std::vector<float>& points, const char* baseFileName, in
 	}
 }
 
-void GeneratePointsInCircle(int numPoints, int numIterations, int batchSize, const char* baseFileName, int numProgressImages)
+template <typename TICDFLambda>
+void GeneratePoints(int numPoints, int numIterations, int batchSize, const char* baseFileName, int numProgressImages, const TICDFLambda& ICDFLambda)
 {
 	// get the timestamp of when this started
 	std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
 
-	printf("==================================\n" __FUNCTION__ " %s\n==================================\n", baseFileName);
-
-	FILE* file = nullptr;
-	char outputFileNameCSV[1024];
-	sprintf(outputFileNameCSV, "%s.csv", baseFileName);
-	fopen_s(&file, outputFileNameCSV, "wb");
-	fprintf(file, "\"Iteration\",\"Avg. Movement\"\n");
-
-	// make the Numerical ICDF
-	ICDF circleICDF = ICDFFromCDF(-0.5f, 0.5f, 1000, UnitCircleCDF);
-
-	// Generate the starting points
-	std::vector<float> points(numPoints * 2);
-	{
-		std::mt19937 rng = GetRNG(0);
-		std::uniform_real_distribution<float> distUniform(-1.0f, 1.0f);
-		for (float& f : points)
-			f = distUniform(rng);
-	}
-
-	// Per batch data
-	// Each batch entry has it's own data so the batches can be parallelized
-	struct BatchData
-	{
-		BatchData(int numPoints)
-		{
-			sorted.resize(numPoints);
-			for (int i = 0; i < numPoints; ++i)
-				sorted[i] = i;
-			projections.resize(numPoints);
-			batchDirections.resize(numPoints * 2);
-		}
-
-		std::vector<int> sorted;
-		std::vector<float> projections;
-		std::vector<float> batchDirections;
-	};
-	std::vector<BatchData> allBatchData(batchSize, BatchData(numPoints));
-
-	// For each iteration
-	for (int iterationIndex = 0; iterationIndex < numIterations; ++iterationIndex)
-	{
-		// Write out progress
-		if (numProgressImages > 0)
-		{
-			int progressInterval = numIterations / numProgressImages;
-			if (iterationIndex % progressInterval == 0)
-				SavePointSet(points, baseFileName, iterationIndex / progressInterval, numProgressImages);
-		}
-
-		// Do the batches in parallel
-		#pragma omp parallel for
-		for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex)
-		{
-			BatchData& batchData = allBatchData[batchIndex];
-
-			std::mt19937 rng = GetRNG(iterationIndex * batchSize + batchIndex);
-			std::normal_distribution<float> distNormal(0.0f, 1.0f);
-
-			// Make a uniform random unit vector by generating 2 normal distributed values and normalizing the result.
-			float direction[2];
-			direction[0] = distNormal(rng);
-			direction[1] = distNormal(rng);
-			float length = std::sqrt(direction[0] * direction[0] + direction[1] * direction[1]);
-			direction[0] /= length;
-			direction[1] /= length;
-
-			// project the points
-			for (size_t i = 0; i < numPoints; ++i)
-			{
-				batchData.projections[i] =
-					direction[0] * points[i * 2 + 0] +
-					direction[1] * points[i * 2 + 1];
-			}
-
-			// sort the projections
-			std::sort(batchData.sorted.begin(), batchData.sorted.end(),
-				[&](uint32_t a, uint32_t b)
-				{
-					return batchData.projections[a] < batchData.projections[b];
-				}
-			);
-
-			// update batchDirections
-			for (size_t i = 0; i < numPoints; ++i)
-			{
-				// Note: circle is from -0.5 to +0.5
-				float targetProjection = ((float(i) + 0.5f) / float(numPoints)) - 0.5f;
-				targetProjection = circleICDF.InverseCDF(targetProjection);
-
-				// Uncomment this if you want to map it back to [-1,+1]
-				targetProjection = targetProjection * 2.0f;
-
-				float projDiff = targetProjection - batchData.projections[batchData.sorted[i]];
-
-				batchData.batchDirections[batchData.sorted[i] * 2 + 0] = direction[0] * projDiff;
-				batchData.batchDirections[batchData.sorted[i] * 2 + 1] = direction[1] * projDiff;
-			}
-		}
-
-		// average all batch directions into batchDirections[0]
-		{
-			for (int batchIndex = 1; batchIndex < batchSize; ++batchIndex)
-			{
-				float alpha = 1.0f / float(batchIndex + 1);
-				for (size_t i = 0; i < numPoints * 2; ++i)
-					allBatchData[0].batchDirections[i] = Lerp(allBatchData[0].batchDirections[i], allBatchData[batchIndex].batchDirections[i], alpha);
-			}
-		}
-
-		// update points
-		float totalDistance = 0.0f;
-		for (size_t i = 0; i < numPoints; ++i)
-		{
-			float adjust[2] = {
-				allBatchData[0].batchDirections[i * 2 + 0],
-				allBatchData[0].batchDirections[i * 2 + 1]
-			};
-
-			points[i * 2 + 0] += adjust[0];
-			points[i * 2 + 1] += adjust[1];
-
-			totalDistance += std::sqrt(adjust[0] * adjust[0] + adjust[1] * adjust[1]);
-		}
-
-		printf("[%i] %f\n", iterationIndex, totalDistance / float(numPoints));
-		fprintf(file, "\"%i\",\"%f\"\n", iterationIndex, totalDistance / float(numPoints));
-	}
-
-	fclose(file);
-
-	// Write out the final results
-	SavePointSet(points, baseFileName, numProgressImages, numProgressImages);
-
-	// report how long this took
-	float elpasedSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
-	printf("\n%0.2f seconds\n\n", elpasedSeconds);
-}
-
-void GeneratePointsInSquare(int numPoints, int numIterations, int batchSize, const char* baseFileName, int numProgressImages)
-{
-	// get the timestamp of when this started
-	std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
-
-	printf("==================================\n" __FUNCTION__ " %s\n==================================\n", baseFileName);
+	printf("==================================\n%s\n==================================\n", baseFileName);
 
 	FILE* file = nullptr;
 	char outputFileNameCSV[1024];
@@ -314,12 +171,9 @@ void GeneratePointsInSquare(int numPoints, int numIterations, int batchSize, con
 			// update batchDirections
 			for (size_t i = 0; i < numPoints; ++i)
 			{
-				// Note: square is from -0.5 to +0.5
-				float targetProjection = ((float(i) + 0.5f) / float(numPoints)) - 0.5f;
-				targetProjection = Square::InverseCDF(targetProjection, float2{ direction[0], direction[1] });
+				float targetProjection = ((float(i) + 0.5f) / float(numPoints));
 
-				// Uncomment this if you want to map it back to [-1,+1]
-				targetProjection = targetProjection * 2.0f;
+				targetProjection = ICDFLambda(targetProjection, float2{ direction[0], direction[1]});
 
 				float projDiff = targetProjection - batchData.projections[batchData.sorted[i]];
 
@@ -371,15 +225,49 @@ int main(int argc, char** argv)
 {
 	_mkdir("out");
 
-	GeneratePointsInSquare(1000, 100, 64, "out/square", 20);
-	GeneratePointsInCircle(1000, 100, 16, "out/circle", 20);
+	// Points in square
+	{
+		GeneratePoints(1000, 100, 64, "out/square", 5,
+			[] (float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+
+	}
+
+	// Points in circle
+	{
+		// make the Numerical ICDF
+		ICDF circleICDF = ICDFFromCDF(-0.5f, 0.5f, 1000, UnitCircleCDF);
+
+		GeneratePoints(1000, 100, 16, "out/circle", 5,
+			[&](float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = circleICDF.InverseCDF(y);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+	}
 
 	return 0;
 }
 
 /*
 TODO:
-* combine GeneratePointsInSquare into a function that takes an ICDF lambda!
 * does the BN tile?
 * what's the DFT look like?
 * what to do about points outside the square? clamp? wrap?
@@ -401,7 +289,7 @@ Blog Post:
 * then points in square
 * the mixed density
 * show derivation of square CDF? and circle.
-* show a gif of the full 100 steps making noise?
+* show a gif of the full 100 steps making noise? we could randomly color the points, so you can follow points by color
 * link to sliced optimal transport sampling. Also the more advanced one? (which is...??)
  * sliced OT sampling http://www.geometry.caltech.edu/pubs/PBCIW+20.pdf
  * more advanced: https://dl.acm.org/doi/pdf/10.1145/3550454.3555484
