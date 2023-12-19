@@ -376,43 +376,38 @@ int main(int argc, char** argv)
 
 	return 0;
 }
-/*
-TODO: could try making things in new gigi editor to test it, also doing these point sets. leave parser for another time.
-
-*/
-
-// TODO: combine GeneratePointsInSquare into a function that takes an ICDF lambda!
-// TODO: fix blue noise points to be -1 to 1 i think?
-// TODO: does the BN tile?
-// TODO; what's the DFT look like?
-// TODO: what to do about points outside the square? clamp? wrap?
-// TODO: circle not working well?! need ICDF.
-// TODO: density map for both circle and square. numerical ICDF!
-// TODO: the make the generated points code have a struct for X,Y? instead of just a single array of floats. or make it be like [][2]?
 
 /*
 TODO:
-- need to solve the thing about all the points going to the egdes! squaring the projection to push them towards the center wasn't the fix. it made a lot of points go to the center!
-- compare vs MBC.
-- note that the paper has a different way to do circular CDF than you do.
-- look for todos
+* combine GeneratePointsInSquare into a function that takes an ICDF lambda!
+* does the BN tile?
+* what's the DFT look like?
+* what to do about points outside the square? clamp? wrap?
+* density map for both circle and square. numerical ICDF!
+* the make the generated points code have a struct for X,Y? instead of just a single array of floats. or make it be like [][2]?
+* compare vs MBC.
+* is overconvergence a problem?
 
 TODO:
-1) in a circle. mention how you can make a z coordinate to make it cosine weighted hemispherical points! is overconvergence a problem?
 2) in a circle, using golden ratio + initial RNG. see if it converges faster? could also compare stratified points vs pure white noise.
 2.5) maybe try all 4 combos: (uniform | stratified) x (uniform | golden ratio)
-3) in a square. how to?
-4) using a black and white image as a density guide for the dots
 
 NOTES:
 
 
 Blog Post:
-* show derivation of square CDF? and circle if we make it.
+* points in circle
+ * mention how you can add a z component to make a normalized vector and that it will then be a cosine weighted hemispherical point
+* then points in square
+* the mixed density
+* show derivation of square CDF? and circle.
 * show a gif of the full 100 steps making noise?
 * link to sliced optimal transport sampling. Also the more advanced one? (which is...??)
  * sliced OT sampling http://www.geometry.caltech.edu/pubs/PBCIW+20.pdf
  * more advanced: https://dl.acm.org/doi/pdf/10.1145/3550454.3555484
 * sliced OT also does multiclass. maybe mention it instead of implementing it? or is it worth implementing?
+* the way I did circle ICDF is different than what the sliced OT sampling paper does. They have a numerical ICDF in the end like me, they made with gradient descent. I make a large table with linear interpolation. Seems to work!
+ * mention you could make a CDF from a PDF, if it's hard to make the CDF.
+Next: figure out how to use sliced OT to make noise masks
 */
 
