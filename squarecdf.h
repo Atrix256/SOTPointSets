@@ -2,7 +2,7 @@
 
 #include "maths.h"
 
-// Derived By Will
+// Derived By William Donnelly
 
 // The square is centered at (0,0) and has width and height of 1.
 // So, the square is (x,y) in (-0.5,0.5)^2

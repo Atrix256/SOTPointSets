@@ -46,7 +46,7 @@ float UnitCircleCDF(float x)
 	return ret / c_circleArea;
 }
 
-void SavePointSet(const std::vector<float>& points, const char* baseFileName, int index, int total)
+void SavePointSet(const std::vector<float2>& points, const char* baseFileName, int index, int total)
 {
 	// Write out points in text
 	{
@@ -55,10 +55,10 @@ void SavePointSet(const std::vector<float>& points, const char* baseFileName, in
 		FILE* file = nullptr;
 		fopen_s(&file, fileName, "wb");
 
-		fprintf(file, "float points[] =\n{\n");
+		fprintf(file, "float points[][2] =\n{\n");
 		
-		for (size_t index = 0; index < points.size() / 2; ++index)
-			fprintf(file, "    %ff, %ff,\n", points[index * 2 + 0], points[index * 2 + 1]);
+		for (size_t index = 0; index < points.size(); ++index)
+			fprintf(file, "    { %ff, %ff },\n", points[index].x, points[index].y);
 
 		fprintf(file, "};\n");
 		
@@ -69,10 +69,10 @@ void SavePointSet(const std::vector<float>& points, const char* baseFileName, in
 	{
 		std::vector<unsigned char> pixels(c_pointImageSize * c_pointImageSize, 255);
 
-		for (size_t index = 0; index < points.size() / 2; ++index)
+		for (size_t index = 0; index < points.size(); ++index)
 		{
-			int x = (int)Clamp((points[index * 2 + 0] * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
-			int y = (int)Clamp((points[index * 2 + 1] * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
+			int x = (int)Clamp((points[index].x * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
+			int y = (int)Clamp((points[index].y * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
 			pixels[y * c_pointImageSize + x] = 0;
 		}
 
@@ -97,12 +97,15 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 	fprintf(file, "\"Iteration\",\"Avg. Movement\"\n");
 
 	// Generate the starting points
-	std::vector<float> points(numPoints * 2);
+	std::vector<float2> points(numPoints);
 	{
 		std::mt19937 rng = GetRNG(0);
 		std::uniform_real_distribution<float> distUniform(-1.0f, 1.0f);
-		for (float& f : points)
-			f = distUniform(rng);
+		for (float2& p : points)
+		{
+			p.x = distUniform(rng);
+			p.y = distUniform(rng);
+		}
 	}
 
 	// Per batch data
@@ -115,12 +118,12 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 			for (int i = 0; i < numPoints; ++i)
 				sorted[i] = i;
 			projections.resize(numPoints);
-			batchDirections.resize(numPoints * 2);
+			batchDirections.resize(numPoints);
 		}
 
 		std::vector<int> sorted;
 		std::vector<float> projections;
-		std::vector<float> batchDirections;
+		std::vector<float2> batchDirections;
 	};
 	std::vector<BatchData> allBatchData(batchSize, BatchData(numPoints));
 
@@ -136,7 +139,7 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 		}
 
 		// Do the batches in parallel
-		#pragma omp parallel for 
+		#pragma omp parallel for
 		for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex)
 		{
 			BatchData& batchData = allBatchData[batchIndex];
@@ -145,20 +148,14 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 			std::normal_distribution<float> distNormal(0.0f, 1.0f);
 
 			// Make a uniform random unit vector by generating 2 normal distributed values and normalizing the result.
-			float direction[2];
-			direction[0] = distNormal(rng);
-			direction[1] = distNormal(rng);
-			float length = std::sqrt(direction[0] * direction[0] + direction[1] * direction[1]);
-			direction[0] /= length;
-			direction[1] /= length;
+			float2 direction;
+			direction.x = distNormal(rng);
+			direction.y = distNormal(rng);
+			direction = Normalize(direction);
 
 			// project the points
 			for (size_t i = 0; i < numPoints; ++i)
-			{
-				batchData.projections[i] =
-					direction[0] * points[i * 2 + 0] +
-					direction[1] * points[i * 2 + 1];
-			}
+				batchData.projections[i] = Dot(direction, points[i]);
 
 			// sort the projections
 			std::sort(batchData.sorted.begin(), batchData.sorted.end(),
@@ -173,12 +170,12 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 			{
 				float targetProjection = ((float(i) + 0.5f) / float(numPoints));
 
-				targetProjection = ICDFLambda(targetProjection, float2{ direction[0], direction[1]});
+				targetProjection = ICDFLambda(targetProjection, direction);
 
 				float projDiff = targetProjection - batchData.projections[batchData.sorted[i]];
 
-				batchData.batchDirections[batchData.sorted[i] * 2 + 0] = direction[0] * projDiff;
-				batchData.batchDirections[batchData.sorted[i] * 2 + 1] = direction[1] * projDiff;
+				batchData.batchDirections[batchData.sorted[i]].x = direction.x * projDiff;
+				batchData.batchDirections[batchData.sorted[i]].y = direction.y * projDiff;
 			}
 		}
 
@@ -187,8 +184,11 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 			for (int batchIndex = 1; batchIndex < batchSize; ++batchIndex)
 			{
 				float alpha = 1.0f / float(batchIndex + 1);
-				for (size_t i = 0; i < numPoints * 2; ++i)
-					allBatchData[0].batchDirections[i] = Lerp(allBatchData[0].batchDirections[i], allBatchData[batchIndex].batchDirections[i], alpha);
+				for (size_t i = 0; i < numPoints; ++i)
+				{
+					allBatchData[0].batchDirections[i].x = Lerp(allBatchData[0].batchDirections[i].x, allBatchData[batchIndex].batchDirections[i].x, alpha);
+					allBatchData[0].batchDirections[i].y = Lerp(allBatchData[0].batchDirections[i].y, allBatchData[batchIndex].batchDirections[i].y, alpha);
+				}
 			}
 		}
 
@@ -196,15 +196,12 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 		float totalDistance = 0.0f;
 		for (size_t i = 0; i < numPoints; ++i)
 		{
-			float adjust[2] = {
-				allBatchData[0].batchDirections[i * 2 + 0],
-				allBatchData[0].batchDirections[i * 2 + 1]
-			};
+			const float2& adjust = allBatchData[0].batchDirections[i];
 
-			points[i * 2 + 0] += adjust[0];
-			points[i * 2 + 1] += adjust[1];
+			points[i].x += adjust.x;
+			points[i].y += adjust.y;
 
-			totalDistance += std::sqrt(adjust[0] * adjust[0] + adjust[1] * adjust[1]);
+			totalDistance += std::sqrt(adjust.x * adjust.x + adjust.y * adjust.y);
 		}
 
 		printf("[%i] %f\n", iterationIndex, totalDistance / float(numPoints));
@@ -268,11 +265,10 @@ int main(int argc, char** argv)
 
 /*
 TODO:
-* what to do about points outside the square? clamp? wrap?
-* density map for both circle and square. numerical ICDF!
-* the make the generated points code have a struct for X,Y? instead of just a single array of floats. or make it be like [][2]?
 * compare vs MBC.
 * is overconvergence a problem?
+* density map for both circle and square. numerical ICDF!
+
 
 TODO:
 2) in a circle, using golden ratio + initial RNG. see if it converges faster? could also compare stratified points vs pure white noise.
@@ -286,6 +282,7 @@ Blog Post:
  * mention how you can add a z component to make a normalized vector and that it will then be a cosine weighted hemispherical point
 * then points in square
  * show the DFT and that it tiles decently!
+ * note that it's possible to get points outside of the square. up to you if you want to wrap or clamp.  I don't do either, but when drawing the points on the images, i clamp.
 * then mixed density
 * show derivation of square CDF? and circle.
 * show a gif of the full 100 steps making noise? we could randomly color the points, so you can follow points by color

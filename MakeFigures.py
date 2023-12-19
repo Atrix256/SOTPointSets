@@ -34,6 +34,12 @@ for fileName in fileNames:
     imOut = Image.new(loadedImage.mode, (loadedImage.size[0] * 3, loadedImage.size[1] * 3), 255)
     for i in range(3):
         for j in range(3):
-            print("(" + str(i*loadedImage.size[0]) + ", " + str(j*loadedImage.size[1]) + ")")
             imOut.paste(loadedImage, (i*loadedImage.size[0],j*loadedImage.size[1]))
     imOut.save(fileName + ".3x3.png")
+    
+    # Tile image as 11x11
+    imOut = Image.new(loadedImage.mode, (loadedImage.size[0] * 11, loadedImage.size[1] * 11), 255)
+    for i in range(11):
+        for j in range(11):
+            imOut.paste(loadedImage, (i*loadedImage.size[0],j*loadedImage.size[1]))
+    imOut.save(fileName + ".11x11.png")
