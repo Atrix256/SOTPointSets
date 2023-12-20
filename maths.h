@@ -1,6 +1,7 @@
 #pragma once
 
 static const float c_pi = 3.14159265359f;
+static const float c_goldenRatioConjugate = 0.61803398875f;  // 1 over phi, which is also just the fractional portion of phi
 
 struct float2
 {
@@ -65,4 +66,9 @@ inline float Clamp(T value, T themin, T themax)
 		return themax;
 
 	return value;
+}
+
+inline float Fract(float f)
+{
+	return f - std::floor(f);
 }
