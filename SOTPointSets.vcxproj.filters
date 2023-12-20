@@ -5,7 +5,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="squarecdf.h" />
-    <ClInclude Include="NumericalICDF.h" />
+    <ClInclude Include="NumericalCDF.h" />
     <ClInclude Include="maths.h" />
     <ClInclude Include="stb\stb_image.h">
       <Filter>stb</Filter>

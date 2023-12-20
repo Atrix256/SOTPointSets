@@ -134,7 +134,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="NumericalICDF.h" />
+    <ClInclude Include="NumericalCDF.h" />
     <ClInclude Include="squarecdf.h" />
     <ClInclude Include="stb\stb_image.h" />
     <ClInclude Include="stb\stb_image_write.h" />

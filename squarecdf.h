@@ -45,4 +45,24 @@ namespace Square
 			return (x < 0.0f) ? -u : u;
 		}
 	}
+
+	inline float PDF(float x, float2 d)
+	{
+		float c = std::max(std::abs(d.x), std::abs(d.y));
+		float s = std::min(std::abs(d.x), std::abs(d.y));
+
+		if (abs(x) < 0.5f * (c - s))
+		{
+			return 1 / c;
+		}
+		else if (abs(x) < 0.5f * (c + s))
+		{
+			float fromEnd = (0.5f * (c + s) - std::abs(x));
+			return fromEnd / (c * s);
+		}
+		else
+		{
+			return 0.0f;
+		}
+	}
 };

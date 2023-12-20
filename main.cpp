@@ -4,12 +4,6 @@
 #define DETERMINISTIC() true
 static const int c_pointImageSize = 256;
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb/stb_image.h"
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb/stb_image_write.h"
-
 #include <random>
 #include <vector>
 #include <direct.h>
@@ -17,10 +11,19 @@ static const int c_pointImageSize = 256;
 #include <chrono>
 
 #include "squarecdf.h"
-#include "NumericalICDF.h"
+#include "NumericalCDF.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb/stb_image_write.h"
+
 
 // TODO: set this back to 10 before making post
 static const int c_sampleMultiplier = 1; // 1 for debugging and iteration. 10 for quality
+
+#define MULTITHREADED() true
 
 std::mt19937 GetRNG(int index)
 {
@@ -84,6 +87,15 @@ void SavePointSet(const std::vector<float2>& points, const char* baseFileName, i
 	}
 }
 
+void* DummyBatchBegin(const float2& direction)
+{
+	return nullptr;
+}
+
+void DummyBatchEnd(void* param)
+{
+}
+
 float2 MakeDirection_Gauss(int iterationIndex, int batchIndex, int batchSize)
 {
 	std::mt19937 rng = GetRNG(iterationIndex * batchSize + batchIndex);
@@ -114,8 +126,8 @@ float2 MakeDirection_GoldenRatio(int iterationIndex, int batchIndex, int batchSi
 	};
 }
 
-template <typename TMakeDirectionLambda, typename TICDFLambda>
-void GeneratePoints(int numPoints, int numIterations, int batchSize, const char* baseFileName, int numProgressImages, const TMakeDirectionLambda& MakeDirectionLambda, const TICDFLambda& ICDFLambda)
+template <typename TMakeDirectionLambda, typename TBatchBeginLambda, typename TBatchEndLambda, typename TICDFLambda>
+void GeneratePoints(int numPoints, int numIterations, int batchSize, const char* baseFileName, int numProgressImages, const TMakeDirectionLambda& MakeDirectionLambda, const TBatchBeginLambda& BatchBeginLambda, const TBatchEndLambda& BatchEndLambda, const TICDFLambda& ICDFLambda)
 {
 	// get the timestamp of when this started
 	std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
@@ -172,7 +184,9 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 		}
 
 		// Do the batches in parallel
+		#if MULTITHREADED()
 		#pragma omp parallel for
+		#endif
 		for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex)
 		{
 			BatchData& batchData = allBatchData[batchIndex];
@@ -192,17 +206,19 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 			);
 
 			// update batchDirections
+			void* param = BatchBeginLambda(direction);
 			for (size_t i = 0; i < numPoints; ++i)
 			{
 				float targetProjection = ((float(i) + 0.5f) / float(numPoints));
 
-				targetProjection = ICDFLambda(targetProjection, direction);
+				targetProjection = ICDFLambda(param, targetProjection, direction);
 
 				float projDiff = targetProjection - batchData.projections[batchData.sorted[i]];
 
 				batchData.batchDirections[batchData.sorted[i]].x = direction.x * projDiff;
 				batchData.batchDirections[batchData.sorted[i]].y = direction.y * projDiff;
 			}
+			BatchEndLambda(param);
 		}
 
 		// average all batch directions into batchDirections[0]
@@ -387,6 +403,43 @@ int main(int argc, char** argv)
 {
 	_mkdir("out");
 
+	// Points in square, with a density map
+	{
+		DensityMap densityMap = LoadDensityMap("flower.png");
+
+		GeneratePoints(10000, 100 * c_sampleMultiplier, 64, "out/square_flower", 5, MakeDirection_Gauss,
+			// Batch Begin
+			[&] (const float2& direction)
+			{
+				// Make ICDF by projecting density map onto the direction
+				CDF* ret = new CDF;
+				*ret = CDFFromDensityMap(densityMap, 1000, direction);
+				for (float2& p : ret->CDFSamples)
+					p.y -= 0.5f;
+				return ret;
+			},
+			// Batch End
+			[] (void* param)
+			{
+				CDF* cdf = (CDF*)param;
+				delete cdf;
+			},
+			// ICDF
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = ((CDF*)param)->InverseCDF(y);
+
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+	}
+
 	// Mitchell's best candidate blue noise
 	MitchellsBestCandidate(1000, "out/MBC");
 
@@ -395,8 +448,8 @@ int main(int argc, char** argv)
 
 	// Points in square - batch sizes 1,4,16, 64, 256
 	{
-		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_square", 5, MakeDirection_Gauss,
-			[](float y, const float2& direction)
+		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
 				y = y - 0.5f;
@@ -409,8 +462,8 @@ int main(int argc, char** argv)
 			}
 		);
 
-		GeneratePoints(1000, 1600 * c_sampleMultiplier, 4, "out/batch4_square", 5, MakeDirection_Gauss,
-			[](float y, const float2& direction)
+		GeneratePoints(1000, 1600 * c_sampleMultiplier, 4, "out/batch4_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
 				y = y - 0.5f;
@@ -423,8 +476,8 @@ int main(int argc, char** argv)
 			}
 		);
 
-		GeneratePoints(1000, 400 * c_sampleMultiplier, 16, "out/batch16_square", 5, MakeDirection_Gauss,
-			[](float y, const float2& direction)
+		GeneratePoints(1000, 400 * c_sampleMultiplier, 16, "out/batch16_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
 				y = y - 0.5f;
@@ -438,8 +491,8 @@ int main(int argc, char** argv)
 		);
 
 
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/batch64_square", 5, MakeDirection_Gauss,
-			[](float y, const float2& direction)
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/batch64_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
 				y = y - 0.5f;
@@ -452,8 +505,8 @@ int main(int argc, char** argv)
 			}
 		);
 
-		GeneratePoints(1000, 25 * c_sampleMultiplier, 256, "out/batch256_square", 5, MakeDirection_Gauss,
-			[](float y, const float2& direction)
+		GeneratePoints(1000, 25 * c_sampleMultiplier, 256, "out/batch256_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
 				y = y - 0.5f;
@@ -469,8 +522,8 @@ int main(int argc, char** argv)
 
 	// Points in square, using golden ratio sequence for random angles
 	{
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square_GR", 5, MakeDirection_GoldenRatio,
-			[](float y, const float2& direction)
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square_GR", 5, MakeDirection_GoldenRatio, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
 				y = y - 0.5f;
@@ -486,8 +539,8 @@ int main(int argc, char** argv)
 
 	// Points in square - batch size 64
 	{
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square", 5, MakeDirection_Gauss,
-			[] (float y, const float2& direction)
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[] (void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
 				y = y - 0.5f;
@@ -504,16 +557,16 @@ int main(int argc, char** argv)
 	// Points in circle  - batch size 1
 	{
 		// make the Numerical ICDF
-		ICDF circleICDF = ICDFFromCDF(-0.5f, 0.5f, 1000, UnitCircleCDF);
+		CDF circleCDF = CDFFromCDFFn(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
-		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_circle", 5, MakeDirection_Gauss,
-			[&](float y, const float2& direction)
+		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_circle", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[&](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
 				y = y - 0.5f;
 
 				// Evaluate ICDF
-				float x = circleICDF.InverseCDF(y);
+				float x = circleCDF.InverseCDF(y);
 
 				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
 				return x * 2.0f;
@@ -524,16 +577,16 @@ int main(int argc, char** argv)
 	// Points in circle, using golden ratio sequence for random angles
 	{
 		// make the Numerical ICDF
-		ICDF circleICDF = ICDFFromCDF(-0.5f, 0.5f, 1000, UnitCircleCDF);
+		CDF circleCDF = CDFFromCDFFn(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 16, "out/circle_GR", 5, MakeDirection_GoldenRatio,
-			[&](float y, const float2& direction)
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 16, "out/circle_GR", 5, MakeDirection_GoldenRatio, DummyBatchBegin, DummyBatchEnd,
+			[&](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
 				y = y - 0.5f;
 
 				// Evaluate ICDF
-				float x = circleICDF.InverseCDF(y);
+				float x = circleCDF.InverseCDF(y);
 
 				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
 				return x * 2.0f;
@@ -544,16 +597,16 @@ int main(int argc, char** argv)
 	// Points in circle  - batch size 64
 	{
 		// make the Numerical ICDF
-		ICDF circleICDF = ICDFFromCDF(-0.5f, 0.5f, 1000, UnitCircleCDF);
+		CDF circleCDF = CDFFromCDFFn(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 16, "out/circle", 5, MakeDirection_Gauss,
-			[&](float y, const float2& direction)
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 16, "out/circle", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[&](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
 				y = y - 0.5f;
 
 				// Evaluate ICDF
-				float x = circleICDF.InverseCDF(y);
+				float x = circleCDF.InverseCDF(y);
 
 				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
 				return x * 2.0f;
@@ -566,9 +619,8 @@ int main(int argc, char** argv)
 
 /*
 TODO:
-* density map for both circle and square. numerical ICDF!
- * may need to multiply both CDFs into a table and renormalize. if one is zero where the other isn't, that's lost value.
- * for each pixel, project it to the line. only center point? a pixel might overlap multiple buckets.
+* allow density map to go through a "gain" function to increase contrast.
+* yes do multiclass so you have an implementation of it!
 
 Blog Post:
 * points in circle
@@ -595,6 +647,9 @@ Blog Post:
 * could play around with batch size and see if there are trade offs, and if overconvergence becomes a problem at 1
 * mention other methods to make blue noise exist. like gaussian blue noise.
 * note that to get a clearer picture of DFTs, you can make multiple and average them to get the expected DFT which is a lot cleaner and less noisy
+* not sure why they say they beat dart throwing, when dart throwing looks better to me.
+* put thing about eyes and the heuristic from nature about hexagon tiles in the middle where it's dense / high quality, and blue noise around the outside where it's sparse / lower quality.
+* mention that you could probably do density maps with dart throwing and MBC. Get the density at each point, turn those into distances, and subtract that from the distance between points
 Next: figure out how to use sliced OT to make noise masks
 */
 
