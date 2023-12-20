@@ -407,7 +407,7 @@ int main(int argc, char** argv)
 	{
 		DensityMap densityMap = LoadDensityMap("flower.png");
 
-		GeneratePoints(10000, 100 * c_sampleMultiplier, 64, "out/square_flower", 5, MakeDirection_Gauss,
+		GeneratePoints(50000, 100 * c_sampleMultiplier, 64, "out/square_flower", 5, MakeDirection_Gauss,
 			// Batch Begin
 			[&] (const float2& direction)
 			{
