@@ -594,6 +594,7 @@ Blog Post:
  * mention you could make a CDF from a PDF, if it's hard to make the CDF.
 * could play around with batch size and see if there are trade offs, and if overconvergence becomes a problem at 1
 * mention other methods to make blue noise exist. like gaussian blue noise.
+* note that to get a clearer picture of DFTs, you can make multiple and average them to get the expected DFT which is a lot cleaner and less noisy
 Next: figure out how to use sliced OT to make noise masks
 */
 
