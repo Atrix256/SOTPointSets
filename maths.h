@@ -17,6 +17,12 @@ inline float Length(const float2& f)
 	return std::sqrt(Dot(f, f));
 }
 
+inline float DistanceSquared(const float2& a, const float2& b)
+{
+	float2 diff = float2{ a.x - b.x, a.y - b.y };
+	return Dot(diff, diff);
+}
+
 // assumes the points are in [0,1]^2
 inline float DistanceWrap(const float2& a, const float2& b)
 {

@@ -19,6 +19,8 @@ static const int c_pointImageSize = 256;
 #include "squarecdf.h"
 #include "NumericalICDF.h"
 
+// TODO: set this back to 10 before making post
+static const int c_sampleMultiplier = 1; // 1 for debugging and iteration. 10 for quality
 
 std::mt19937 GetRNG(int index)
 {
@@ -286,6 +288,78 @@ void MitchellsBestCandidate(int numPoints, const char* baseFileName)
 	printf("%0.2f seconds\n\n", elpasedSeconds);
 }
 
+void DartThrowing(int numPoints, float minRadius, int maxThrowsPerPoint, const char* baseFileName)
+{
+	// get the timestamp of when this started
+	std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
+
+	printf("==================================\n%s\n==================================\n", baseFileName);
+
+	std::mt19937 rng = GetRNG(0);
+	std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+	std::vector<float2> points(numPoints);
+
+	float minRadiusSquared = minRadius * minRadius;
+
+	int lastPercent = -1;
+	for (int pointIndex = 0; pointIndex < numPoints; ++pointIndex)
+	{
+		// Throw darts
+		bool found = false;
+		for (int throwIndex = 0; throwIndex < maxThrowsPerPoint; ++throwIndex)
+		{
+			float2 newPoint = float2{ dist(rng), dist(rng) };
+
+			bool tooClose = false;
+			for (int testIndex = 0; testIndex < pointIndex; ++testIndex)
+			{
+				if (DistanceSquared(newPoint, points[testIndex]) < minRadiusSquared)
+				{
+					tooClose = true;
+					break;
+				}
+			}
+
+			if (!tooClose)
+			{
+				found = true;
+				points[pointIndex] = newPoint;
+				break;
+			}
+		}
+
+		if (!found)
+		{
+			printf("[ERROR] DartThrowing ran out of throw attempts at point index %i!\n", pointIndex);
+			return;
+		}
+
+		int percent = int(100.0f * float(pointIndex) / float(numPoints - 1));
+		if (percent != lastPercent)
+		{
+			lastPercent = percent;
+			printf("\r[%i%%]", percent);
+		}
+	}
+
+	printf("\n");
+
+	// remap all the points from [0,1] to [-1,1]
+	for (float2& p : points)
+	{
+		p.x = p.x * 2.0f - 1.0f;
+		p.y = p.y * 2.0f - 1.0f;
+	}
+
+	// Write out the final results
+	SavePointSet(points, baseFileName, 1, 1);
+
+	// report how long this took
+	float elpasedSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
+	printf("%0.2f seconds\n\n", elpasedSeconds);
+}
+
 int main(int argc, char** argv)
 {
 	_mkdir("out");
@@ -293,9 +367,69 @@ int main(int argc, char** argv)
 	// Mitchell's best candidate blue noise
 	MitchellsBestCandidate(1000, "out/MBC");
 
-	// Points in square - batch size 1
+	// Dart throwing blue noise (poisson disk)
+	DartThrowing(1000, 22.0f / 1000.0f, 100, "out/Dart");
+
+	// Points in square - batch sizes 1,4,16,128
 	{
-		GeneratePoints(1000, 6400, 1, "out/batch1_square", 5,
+		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_square", 5,
+			[](float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+
+		GeneratePoints(1000, 1600 * c_sampleMultiplier, 4, "out/batch4_square", 5,
+			[](float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+
+		GeneratePoints(1000, 400 * c_sampleMultiplier, 16, "out/batch16_square", 5,
+			[](float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+
+
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/batch64_square", 5,
+			[](float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+
+		GeneratePoints(1000, 25 * c_sampleMultiplier, 256, "out/batch256_square", 5,
 			[](float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -312,7 +446,7 @@ int main(int argc, char** argv)
 
 	// Points in square - batch size 64
 	{
-		GeneratePoints(1000, 100, 64, "out/square", 5,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square", 5,
 			[] (float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -332,7 +466,7 @@ int main(int argc, char** argv)
 		// make the Numerical ICDF
 		ICDF circleICDF = ICDFFromCDF(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
-		GeneratePoints(1000, 6400, 1, "out/batch1_circle", 5,
+		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_circle", 5,
 			[&](float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -352,7 +486,7 @@ int main(int argc, char** argv)
 		// make the Numerical ICDF
 		ICDF circleICDF = ICDFFromCDF(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
-		GeneratePoints(1000, 100, 16, "out/circle", 5,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 16, "out/circle", 5,
 			[&](float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -373,6 +507,8 @@ int main(int argc, char** argv)
 /*
 TODO:
 * density map for both circle and square. numerical ICDF!
+ * may need to multiply both CDFs into a table and renormalize. if one is zero where the other isn't, that's lost value.
+ * for each pixel, project it to the line. only center point? a pixel might overlap multiple buckets.
 * angles in a circle, using golden ratio + initial RNG to see if it converges faster or better?
 
 Blog Post:
@@ -383,6 +519,8 @@ Blog Post:
  * show the DFT and that it tiles decently! average movement graph too?
  * note that it's possible to get points outside of the square. up to you if you want to wrap or clamp.  I don't do either, but when drawing the points on the images, i clamp.
  * MBC looks to be higher quality! But, i don't think it can do varying density like sliced OT can.
+ * also compare vs dart throwing (cook 86 "Stochastic sampling in computer graphics")
+ * graph of 1,4,16,64,256 batch sizes?
 * using a batch of 1 doesn't look like a good idea (pixels are erratic in batch1_circle and square)
  * over convergence doesn't seem to be a problem, which is nice.
 * then mixed density
@@ -395,6 +533,7 @@ Blog Post:
 * the way I did circle ICDF is different than what the sliced OT sampling paper does. They have a numerical ICDF in the end like me, they made with gradient descent. I make a large table with linear interpolation. Seems to work!
  * mention you could make a CDF from a PDF, if it's hard to make the CDF.
 * could play around with batch size and see if there are trade offs, and if overconvergence becomes a problem at 1
+* mention other methods to make blue noise exist. like gaussian blue noise.
 Next: figure out how to use sliced OT to make noise masks
 */
 
