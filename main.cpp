@@ -25,6 +25,12 @@ static const int c_sampleMultiplier = 1; // 1 for debugging and iteration. 10 fo
 
 #define MULTITHREADED() true
 
+struct MultiClassPoint
+{
+	float2 p = float2{ 0.0f, 0.0f };
+	int classIndex = 0;
+};
+
 std::mt19937 GetRNG(int index)
 {
 	#if DETERMINISTIC()
@@ -49,6 +55,87 @@ float UnitCircleCDF(float x)
 
 	// Divide by the total area to make this a PDF (integrate to 1.0)
 	return ret / c_circleArea;
+}
+
+void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFileName, int index, int total)
+{
+	// Write out points in text
+	{
+		char fileName[1024];
+		sprintf_s(fileName, "%s_%i_%i.txt", baseFileName, index, total);
+		FILE* file = nullptr;
+		fopen_s(&file, fileName, "wb");
+
+		fprintf(file, "float points[][3] =\n{\n");
+
+		for (size_t index = 0; index < points.size(); ++index)
+			fprintf(file, "    { %ff, %ff, %ff },\n", points[index].p.x, points[index].p.y, (float)points[index].classIndex);
+
+		fprintf(file, "};\n");
+
+		fclose(file);
+	}
+
+	// Draw an image of the points
+	{
+		std::vector<unsigned char> pixels(c_pointImageSize * c_pointImageSize, 255);
+
+		for (size_t index = 0; index < points.size(); ++index)
+		{
+			int x = (int)Clamp((points[index].p.x * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
+			int y = (int)Clamp((points[index].p.y * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
+			pixels[y * c_pointImageSize + x] = 0;
+		}
+
+		char fileName[1024];
+		sprintf_s(fileName, "%s_%i_%i.png", baseFileName, index, total);
+		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 1, pixels.data(), 0);
+	}
+
+	// see which classes have points, as they might not all have points
+	bool classHasPoints[3] = { false, false, false };
+	for (size_t index = 0; index < points.size(); ++index)
+		classHasPoints[points[index].classIndex] = true;
+
+	// Draw an image of each class
+	for (int i = 1; i < 8; ++i)
+	{
+		bool showImage = true;
+		for (int classIndex = 0; classIndex < 3; ++classIndex)
+		{
+			int classMask = 1 << classIndex;
+			if ((i & classMask) != 0 && !classHasPoints[classIndex])
+				showImage = false;
+		}
+
+		if (!showImage)
+			continue;
+
+		std::vector<unsigned char> pixels(c_pointImageSize * c_pointImageSize * 3, 0);
+
+		for (size_t index = 0; index < points.size(); ++index)
+		{
+			// Draw the points which are part of this class subset. "i" is a bitmask.
+			if ((i & (1 << points[index].classIndex)) != 0)
+			{
+				int x = (int)Clamp((points[index].p.x * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
+				int y = (int)Clamp((points[index].p.y * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
+
+				unsigned char* pixel = &pixels[(y * c_pointImageSize + x) * 3];
+
+				switch (points[index].classIndex)
+				{
+					case 0: pixel[0] = 255; pixel[1] = 64; pixel[2] = 64; break;
+					case 1: pixel[0] = 64; pixel[1] = 255; pixel[2] = 64; break;
+					case 2: pixel[0] = 64; pixel[1] = 64; pixel[2] = 255; break;
+				}
+			}
+		}
+
+		char fileName[1024];
+		sprintf_s(fileName, "%s_%i_%i.%c%c%c.png", baseFileName, index, total, (i & 1)?'T':'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
+		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 3, pixels.data(), 0);
+	}
 }
 
 void SavePointSet(const std::vector<float2>& points, const char* baseFileName, int index, int total)
@@ -124,6 +211,190 @@ float2 MakeDirection_GoldenRatio(int iterationIndex, int batchIndex, int batchSi
 		std::cos(angle),
 		std::sin(angle)
 	};
+}
+
+template <typename TMakeDirectionLambda, typename TBatchBeginLambda, typename TBatchEndLambda, typename TICDFLambda>
+void GenerateMulticlassPoints(int numPoints, int weightA, int weightB, int weightC, int numIterations, int batchSize, const char* baseFileName, int numProgressImages, const TMakeDirectionLambda& MakeDirectionLambda, const TBatchBeginLambda& BatchBeginLambda, const TBatchEndLambda& BatchEndLambda, const TICDFLambda& ICDFLambda)
+{
+	// get the timestamp of when this started
+	std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
+
+	printf("==================================\n%s\n==================================\n", baseFileName);
+
+	FILE* file = nullptr;
+	char outputFileNameCSV[1024];
+	sprintf(outputFileNameCSV, "%s.csv", baseFileName);
+	fopen_s(&file, outputFileNameCSV, "wb");
+	fprintf(file, "\"Iteration\",\"Avg. Movement\"\n");
+
+	// Generate the starting points
+	std::vector<MultiClassPoint> points(numPoints);
+	{
+		std::mt19937 rng = GetRNG(0);
+		std::uniform_real_distribution<float> distUniform(-1.0f, 1.0f);
+		for (MultiClassPoint& p : points)
+		{
+			p.p.x = distUniform(rng);
+			p.p.y = distUniform(rng);
+		}
+
+		for (int i = 0; i < numPoints; ++i)
+		{
+			int weightIndex = i % (weightA + weightB + weightC);
+			if (weightIndex < weightA)
+				points[i].classIndex = 0;
+			else if (weightIndex < (weightA + weightB))
+				points[i].classIndex = 1;
+			else
+				points[i].classIndex = 2;
+		}
+	}
+
+	// Per batch data
+	// Each batch entry has it's own data so the batches can be parallelized
+	struct BatchData
+	{
+		BatchData(int numPoints)
+		{
+			sorted.resize(numPoints);
+			for (int i = 0; i < numPoints; ++i)
+				sorted[i] = i;
+			projections.resize(numPoints);
+			batchDirections.resize(numPoints);
+		}
+
+		std::vector<int> sorted;
+		std::vector<float> projections;
+		std::vector<float2> batchDirections;
+	};
+	std::vector<BatchData> allBatchData(batchSize, BatchData(numPoints));
+
+	// For each iteration
+	int lastPercent = -1;
+	for (int iterationIndex = 0; iterationIndex < numIterations; ++iterationIndex)
+	{
+		// Write out progress
+		if (numProgressImages > 0)
+		{
+			int progressInterval = numIterations / numProgressImages;
+			if (iterationIndex % progressInterval == 0)
+				SavePointSet(points, baseFileName, iterationIndex / progressInterval, numProgressImages);
+		}
+
+		// periodically ensure that our classes are well interleaved
+		bool interleaveClasses = (iterationIndex % 2) == 0;
+
+		// Do the batches in parallel
+		#if MULTITHREADED()
+		#pragma omp parallel for
+		#endif
+		for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex)
+		{
+			BatchData& batchData = allBatchData[batchIndex];
+
+			float2 direction = MakeDirectionLambda(iterationIndex, batchIndex, batchSize);
+
+			// project the points
+			for (size_t i = 0; i < numPoints; ++i)
+				batchData.projections[i] = Dot(direction, points[i].p);
+
+			// sort the projections
+			std::sort(batchData.sorted.begin(), batchData.sorted.end(),
+				[&](uint32_t a, uint32_t b)
+				{
+					return batchData.projections[a] < batchData.projections[b];
+				}
+			);
+
+			// interleave the classes if we should
+			if (interleaveClasses)
+			{
+				// gather the points of each class
+				std::vector<int> classesSorted[3];
+				for (int i = 0; i < batchData.sorted.size(); ++i)
+				{
+					int pointIndex = batchData.sorted[i];
+					classesSorted[points[pointIndex].classIndex].push_back(pointIndex);
+				}
+
+				int classesSortedIndex[3] = { 0, 0, 0 };
+
+				// interleave the sorted classes
+				for (int i = 0; i < batchData.sorted.size(); ++i)
+				{
+					int weightIndex = i % (weightA + weightB + weightC);
+					int desiredClassIndex = 0;
+					if (weightIndex < weightA)
+						desiredClassIndex = 0;
+					else if (weightIndex < (weightA + weightB))
+						desiredClassIndex = 1;
+					else
+						desiredClassIndex = 2;
+
+					batchData.sorted[i] = classesSorted[desiredClassIndex][classesSortedIndex[desiredClassIndex]];
+					classesSortedIndex[desiredClassIndex]++;
+				}
+			}
+
+			// update batchDirections
+			void* param = BatchBeginLambda(direction);
+			for (size_t i = 0; i < numPoints; ++i)
+			{
+				float targetProjection = ((float(i) + 0.5f) / float(numPoints));
+
+				targetProjection = ICDFLambda(param, targetProjection, direction);
+
+				float projDiff = targetProjection - batchData.projections[batchData.sorted[i]];
+
+				batchData.batchDirections[batchData.sorted[i]].x = direction.x * projDiff;
+				batchData.batchDirections[batchData.sorted[i]].y = direction.y * projDiff;
+			}
+			BatchEndLambda(param);
+		}
+
+		// average all batch directions into batchDirections[0]
+		{
+			for (int batchIndex = 1; batchIndex < batchSize; ++batchIndex)
+			{
+				float alpha = 1.0f / float(batchIndex + 1);
+				for (size_t i = 0; i < numPoints; ++i)
+				{
+					allBatchData[0].batchDirections[i].x = Lerp(allBatchData[0].batchDirections[i].x, allBatchData[batchIndex].batchDirections[i].x, alpha);
+					allBatchData[0].batchDirections[i].y = Lerp(allBatchData[0].batchDirections[i].y, allBatchData[batchIndex].batchDirections[i].y, alpha);
+				}
+			}
+		}
+
+		// update points
+		float totalDistance = 0.0f;
+		for (size_t i = 0; i < numPoints; ++i)
+		{
+			const float2& adjust = allBatchData[0].batchDirections[i];
+
+			points[i].p.x += adjust.x;
+			points[i].p.y += adjust.y;
+
+			totalDistance += std::sqrt(adjust.x * adjust.x + adjust.y * adjust.y);
+		}
+
+		int percent = int(100.0f * float(iterationIndex) / float(numIterations - 1));
+		if (percent != lastPercent)
+		{
+			lastPercent = percent;
+			printf("\r[%i%%] %f", percent, totalDistance / float(numPoints));
+			fprintf(file, "\"%i\",\"%f\"\n", iterationIndex, totalDistance / float(numPoints));
+		}
+	}
+	printf("\n");
+
+	fclose(file);
+
+	// Write out the final results
+	SavePointSet(points, baseFileName, numProgressImages, numProgressImages);
+
+	// report how long this took
+	float elpasedSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
+	printf("%0.2f seconds\n\n", elpasedSeconds);
 }
 
 template <typename TMakeDirectionLambda, typename TBatchBeginLambda, typename TBatchEndLambda, typename TICDFLambda>
@@ -403,11 +674,34 @@ int main(int argc, char** argv)
 {
 	_mkdir("out");
 
-	// Points in square, with a density map
+	// Mitchell's best candidate blue noise
+	MitchellsBestCandidate(1000, "out/MBC");
+
+	// Dart throwing blue noise (poisson disk)
+	DartThrowing(1000, 22.0f / 1000.0f, 100, "out/Dart");
+
+	// Multiclass points in a square
+	{
+		GenerateMulticlassPoints(1000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+	}
+
+	// Multiclass points in a square, with a density map
 	{
 		DensityMap densityMap = LoadDensityMap("flower.png");
 
-		GeneratePoints(50000, 100 * c_sampleMultiplier, 64, "out/square_flower", 5, MakeDirection_Gauss,
+		GenerateMulticlassPoints(10000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square_flower", 5, MakeDirection_Gauss,
 			// Batch Begin
 			[&] (const float2& direction)
 			{
@@ -440,11 +734,42 @@ int main(int argc, char** argv)
 		);
 	}
 
-	// Mitchell's best candidate blue noise
-	MitchellsBestCandidate(1000, "out/MBC");
+	// Points in square, with a density map
+	{
+		DensityMap densityMap = LoadDensityMap("flower.png");
 
-	// Dart throwing blue noise (poisson disk)
-	DartThrowing(1000, 22.0f / 1000.0f, 100, "out/Dart");
+		GeneratePoints(10000, 100 * c_sampleMultiplier, 64, "out/square_flower", 5, MakeDirection_Gauss,
+			// Batch Begin
+			[&] (const float2& direction)
+			{
+				// Make ICDF by projecting density map onto the direction
+				CDF* ret = new CDF;
+				*ret = CDFFromDensityMap(densityMap, 1000, direction);
+				for (float2& p : ret->CDFSamples)
+					p.y -= 0.5f;
+				return ret;
+			},
+			// Batch End
+			[] (void* param)
+			{
+				CDF* cdf = (CDF*)param;
+				delete cdf;
+			},
+			// ICDF
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = ((CDF*)param)->InverseCDF(y);
+
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+	}
 
 	// Points in square - batch sizes 1,4,16, 64, 256
 	{
@@ -618,10 +943,6 @@ int main(int argc, char** argv)
 }
 
 /*
-TODO:
-* allow density map to go through a "gain" function to increase contrast.
-* yes do multiclass so you have an implementation of it!
-
 Blog Post:
 * points in circle
  * mention how you can add a z component to make a normalized vector and that it will then be a cosine weighted hemispherical point
@@ -633,6 +954,7 @@ Blog Post:
  * also compare vs dart throwing (cook 86 "Stochastic sampling in computer graphics")
  * graph of 1,4,16,64,256 batch sizes?
  * compare using golden ratio for directions, vs random white noise directions
+ * explain and show multiclass?
 * using a batch of 1 doesn't look like a good idea (pixels are erratic in batch1_circle and square)
  * over convergence doesn't seem to be a problem, which is nice.
 * then mixed density
