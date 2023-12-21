@@ -108,11 +108,12 @@ void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFi
 
 				unsigned char* pixel = &pixelsColor[(y * c_pointImageSize + x) * 3];
 
-				switch (points[index].classIndex)
+				for (int classIndex = 0; classIndex < 3; ++classIndex)
 				{
-					case 0: pixel[0] = 255; pixel[1] = 64; pixel[2] = 64; break;
-					case 1: pixel[0] = 64; pixel[1] = 255; pixel[2] = 64; break;
-					case 2: pixel[0] = 64; pixel[1] = 64; pixel[2] = 255; break;
+					if (classIndex == points[index].classIndex)
+						pixel[classIndex] = 255;
+					else if (pixel[classIndex] == 0)
+						pixel[classIndex] = 64;
 				}
 			}
 		}
@@ -962,6 +963,8 @@ Blog Post:
 * not sure why they say they beat dart throwing, when dart throwing looks better to me.
 * put thing about eyes and the heuristic from nature about hexagon tiles in the middle where it's dense / high quality, and blue noise around the outside where it's sparse / lower quality.
 * mention that you could probably do density maps with dart throwing and MBC. Get the density at each point, turn those into distances, and subtract that from the distance between points
+? maybe show animations that go from start to end position, over X frames and make them into a gif.
+ * That will be a straight line and is the optimal transport. The other animations are the evolution of the OT solve.
 Next: figure out how to use sliced OT to make noise masks
 */
 
