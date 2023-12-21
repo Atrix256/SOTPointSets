@@ -19,9 +19,7 @@ static const int c_pointImageSize = 256;
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb/stb_image_write.h"
 
-
-// TODO: set this back to 10 before making post
-static const int c_sampleMultiplier = 1; // 1 for debugging and iteration. 10 for quality
+static const int c_sampleMultiplier = 10; // 1 for debugging and iteration. 10 for quality
 
 #define MULTITHREADED() true
 
@@ -76,22 +74,6 @@ void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFi
 		fclose(file);
 	}
 
-	// Draw an image of the points
-	{
-		std::vector<unsigned char> pixels(c_pointImageSize * c_pointImageSize, 255);
-
-		for (size_t index = 0; index < points.size(); ++index)
-		{
-			int x = (int)Clamp((points[index].p.x * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
-			int y = (int)Clamp((points[index].p.y * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
-			pixels[y * c_pointImageSize + x] = 0;
-		}
-
-		char fileName[1024];
-		sprintf_s(fileName, "%s_%i_%i.png", baseFileName, index, total);
-		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 1, pixels.data(), 0);
-	}
-
 	// see which classes have points, as they might not all have points
 	bool classHasPoints[3] = { false, false, false };
 	for (size_t index = 0; index < points.size(); ++index)
@@ -111,7 +93,8 @@ void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFi
 		if (!showImage)
 			continue;
 
-		std::vector<unsigned char> pixels(c_pointImageSize * c_pointImageSize * 3, 0);
+		std::vector<unsigned char> pixelsColor(c_pointImageSize * c_pointImageSize * 3, 0);
+		std::vector<unsigned char> pixelsBW(c_pointImageSize * c_pointImageSize, 255);
 
 		for (size_t index = 0; index < points.size(); ++index)
 		{
@@ -121,7 +104,9 @@ void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFi
 				int x = (int)Clamp((points[index].p.x * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
 				int y = (int)Clamp((points[index].p.y * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
 
-				unsigned char* pixel = &pixels[(y * c_pointImageSize + x) * 3];
+				pixelsBW[y * c_pointImageSize + x] = 0;
+
+				unsigned char* pixel = &pixelsColor[(y * c_pointImageSize + x) * 3];
 
 				switch (points[index].classIndex)
 				{
@@ -132,9 +117,14 @@ void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFi
 			}
 		}
 
+		// Write color image
 		char fileName[1024];
-		sprintf_s(fileName, "%s_%i_%i.%c%c%c.png", baseFileName, index, total, (i & 1)?'T':'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
-		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 3, pixels.data(), 0);
+		sprintf_s(fileName, "%s_%i_%i.%c%c%c.color.png", baseFileName, index, total, (i & 1)?'T':'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
+		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 3, pixelsColor.data(), 0);
+
+		// Write black and white image
+		sprintf_s(fileName, "%s_%i_%i.%c%c%c.bw.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
+		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 1, pixelsBW.data(), 0);
 	}
 }
 
@@ -701,7 +691,7 @@ int main(int argc, char** argv)
 	{
 		DensityMap densityMap = LoadDensityMap("flower.png");
 
-		GenerateMulticlassPoints(10000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square_flower", 5, MakeDirection_Gauss,
+		GenerateMulticlassPoints(20000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square_flower", 5, MakeDirection_Gauss,
 			// Batch Begin
 			[&] (const float2& direction)
 			{
@@ -738,7 +728,7 @@ int main(int argc, char** argv)
 	{
 		DensityMap densityMap = LoadDensityMap("flower.png");
 
-		GeneratePoints(10000, 100 * c_sampleMultiplier, 64, "out/square_flower", 5, MakeDirection_Gauss,
+		GeneratePoints(20000, 100 * c_sampleMultiplier, 64, "out/square_flower", 5, MakeDirection_Gauss,
 			// Batch Begin
 			[&] (const float2& direction)
 			{

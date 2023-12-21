@@ -7,13 +7,17 @@ import glob
 
 fileNames = glob.glob("out/*.png")
 
+# Make DFTs of all images
 for fileName in fileNames:
-    print(fileName)
 
     loadedImage = Image.open(fileName)
-    
     im = np.array(loadedImage, dtype=float) / 255.0
-    
+    if len(im.shape) == 3:
+        print(fileName + " (Skipped for DFT)")
+        continue
+
+    print(fileName)
+
     # get the DFT magnitude, zero out DC and shift it so DC is in the middle
     dft = abs(np.fft.fft2(im))
     dft[0,0] = 0.0
