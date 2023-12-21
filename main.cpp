@@ -671,6 +671,16 @@ int main(int argc, char** argv)
 	// Dart throwing blue noise (poisson disk)
 	DartThrowing(1000, 22.0f / 1000.0f, 100, "out/Dart");
 
+	// Points in circle - naive
+	{
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/circle_naive", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[&](void* param, float y, const float2& direction)
+			{
+				return y * 2.0f - 1.0f;
+			}
+		);
+	}
+
 	// Multiclass points in a square
 	{
 		GenerateMulticlassPoints(1000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
@@ -693,6 +703,39 @@ int main(int argc, char** argv)
 		DensityMap densityMap = LoadDensityMap("flower.png");
 
 		GenerateMulticlassPoints(20000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square_flower", 5, MakeDirection_Gauss,
+			// Batch Begin
+			[&] (const float2& direction)
+			{
+				// Make ICDF by projecting density map onto the direction
+				CDF* ret = new CDF;
+				*ret = CDFFromDensityMap(densityMap, 1000, direction);
+				for (float2& p : ret->CDFSamples)
+					p.y -= 0.5f;
+				return ret;
+			},
+			// Batch End
+			[] (void* param)
+			{
+				CDF* cdf = (CDF*)param;
+				delete cdf;
+			},
+			// ICDF
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = ((CDF*)param)->InverseCDF(y);
+
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+
+		// same, with fewer points
+		GenerateMulticlassPoints(1000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square_flower_fewerPoints", 5, MakeDirection_Gauss,
 			// Batch Begin
 			[&] (const float2& direction)
 			{
@@ -895,7 +938,7 @@ int main(int argc, char** argv)
 		// make the Numerical ICDF
 		CDF circleCDF = CDFFromCDFFn(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 16, "out/circle_GR", 5, MakeDirection_GoldenRatio, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/circle_GR", 5, MakeDirection_GoldenRatio, DummyBatchBegin, DummyBatchEnd,
 			[&](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -915,7 +958,7 @@ int main(int argc, char** argv)
 		// make the Numerical ICDF
 		CDF circleCDF = CDFFromCDFFn(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 16, "out/circle", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/circle", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[&](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
