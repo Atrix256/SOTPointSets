@@ -4,6 +4,9 @@
 #define DETERMINISTIC() true
 static const int c_pointImageSize = 256;
 
+static const int c_pointImageGaussSize = 512;
+static const float c_pointImageGaussBlobSigma = 1.5f;
+
 #include <random>
 #include <vector>
 #include <direct.h>
@@ -55,6 +58,41 @@ float UnitCircleCDF(float x)
 	return ret / c_circleArea;
 }
 
+template <int NumChannels>
+void PlotGaussian(std::vector<unsigned char>& image, int width, int height, int x, int y, float sigma, unsigned char color[NumChannels])
+{
+	int kernelRadius = int(std::sqrt(-2.0f * sigma * sigma * std::log(0.005f)));
+
+	int sx = Clamp(x - kernelRadius, 0, width - 1);
+	int ex = Clamp(x + kernelRadius, 0, height - 1);
+	int sy = Clamp(y - kernelRadius, 0, width - 1);
+	int ey = Clamp(y + kernelRadius, 0, height - 1);
+
+	for (int iy = sy; iy <= ey; ++iy)
+	{
+		unsigned char* pixel = &image[(iy * width + sx) * NumChannels];
+
+		int ky = std::abs(iy - y);
+		float kernelY = std::exp(-float(ky * ky) / (2.0f * sigma * sigma));
+
+		for (int ix = sx; ix <= ex; ++ix)
+		{
+			int kx = std::abs(ix - x);
+			float kernelX = std::exp(-float(kx * kx) / (2.0f * sigma * sigma));
+
+			float kernel = kernelX * kernelY;
+
+			for (int i = 0; i < NumChannels; ++i)
+			{
+				unsigned char oldColor = *pixel;
+				unsigned char newColor = (unsigned char)Lerp(float(oldColor), float(color[i]), kernel);
+				*pixel = newColor;
+				pixel++;
+			}
+		}
+	}
+}
+
 void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFileName, int index, int total)
 {
 	// Write out points in text
@@ -96,6 +134,9 @@ void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFi
 		std::vector<unsigned char> pixelsColor(c_pointImageSize * c_pointImageSize * 3, 0);
 		std::vector<unsigned char> pixelsBW(c_pointImageSize * c_pointImageSize, 255);
 
+		std::vector<unsigned char> pixelsColorGauss(c_pointImageGaussSize * c_pointImageGaussSize * 3, 0);
+		std::vector<unsigned char> pixelsBWGauss(c_pointImageGaussSize * c_pointImageGaussSize, 255);
+
 		for (size_t index = 0; index < points.size(); ++index)
 		{
 			// Draw the points which are part of this class subset. "i" is a bitmask.
@@ -115,17 +156,33 @@ void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFi
 					else if (pixel[classIndex] == 0)
 						pixel[classIndex] = 64;
 				}
+
+				x = (int)Clamp((points[index].p.x * 0.5f + 0.5f) * float(c_pointImageGaussSize - 1), 0.0f, float(c_pointImageGaussSize - 1));
+				y = (int)Clamp((points[index].p.y * 0.5f + 0.5f) * float(c_pointImageGaussSize - 1), 0.0f, float(c_pointImageGaussSize - 1));
+
+				unsigned char pixelColor[3] = { 64, 64, 64 };
+				pixelColor[points[index].classIndex] = 255;
+				PlotGaussian<3>(pixelsColorGauss, c_pointImageGaussSize, c_pointImageGaussSize, x, y, c_pointImageGaussBlobSigma, pixelColor);
+
+				unsigned char color[] = { 0 };
+				PlotGaussian<1>(pixelsBWGauss, c_pointImageGaussSize, c_pointImageGaussSize, x, y, c_pointImageGaussBlobSigma, color);
 			}
 		}
 
-		// Write color image
+		// Write color images
 		char fileName[1024];
 		sprintf_s(fileName, "%s_%i_%i.%c%c%c.color.png", baseFileName, index, total, (i & 1)?'T':'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
 		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 3, pixelsColor.data(), 0);
 
+		sprintf_s(fileName, "%s_%i_%i.%c%c%c.gauss.color.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
+		stbi_write_png(fileName, c_pointImageGaussSize, c_pointImageGaussSize, 3, pixelsColorGauss.data(), 0);
+
 		// Write black and white image
 		sprintf_s(fileName, "%s_%i_%i.%c%c%c.bw.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
 		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 1, pixelsBW.data(), 0);
+
+		sprintf_s(fileName, "%s_%i_%i.%c%c%c.gauss.bw.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
+		stbi_write_png(fileName, c_pointImageGaussSize, c_pointImageGaussSize, 1, pixelsBWGauss.data(), 0);
 	}
 }
 
@@ -151,17 +208,26 @@ void SavePointSet(const std::vector<float2>& points, const char* baseFileName, i
 	// Draw an image of the points
 	{
 		std::vector<unsigned char> pixels(c_pointImageSize * c_pointImageSize, 255);
+		std::vector<unsigned char> pixelsGauss(c_pointImageGaussSize * c_pointImageGaussSize, 255);
 
 		for (size_t index = 0; index < points.size(); ++index)
 		{
 			int x = (int)Clamp((points[index].x * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
 			int y = (int)Clamp((points[index].y * 0.5f + 0.5f) * float(c_pointImageSize - 1), 0.0f, float(c_pointImageSize - 1));
 			pixels[y * c_pointImageSize + x] = 0;
+
+			unsigned char color[] = { 0 };
+			x = (int)Clamp((points[index].x * 0.5f + 0.5f) * float(c_pointImageGaussSize - 1), 0.0f, float(c_pointImageGaussSize - 1));
+			y = (int)Clamp((points[index].y * 0.5f + 0.5f) * float(c_pointImageGaussSize - 1), 0.0f, float(c_pointImageGaussSize - 1));
+			PlotGaussian<1>(pixelsGauss, c_pointImageGaussSize, c_pointImageGaussSize, x, y, c_pointImageGaussBlobSigma, color);
 		}
 
 		char fileName[1024];
 		sprintf_s(fileName, "%s_%i_%i.png", baseFileName, index, total);
 		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 1, pixels.data(), 0);
+
+		sprintf_s(fileName, "%s_%i_%i.gauss.png", baseFileName, index, total);
+		stbi_write_png(fileName, c_pointImageGaussSize, c_pointImageGaussSize, 1, pixelsGauss.data(), 0);
 	}
 }
 
@@ -615,7 +681,7 @@ void DartThrowing(int numPoints, float minRadius, int maxThrowsPerPoint, const c
 			bool tooClose = false;
 			for (int testIndex = 0; testIndex < pointIndex; ++testIndex)
 			{
-				if (DistanceSquared(newPoint, points[testIndex]) < minRadiusSquared)
+				if (DistanceWrap(newPoint, points[testIndex]) < minRadius)
 				{
 					tooClose = true;
 					break;
@@ -664,6 +730,40 @@ void DartThrowing(int numPoints, float minRadius, int maxThrowsPerPoint, const c
 int main(int argc, char** argv)
 {
 	_mkdir("out");
+
+	// Points in small square
+	{
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square_small", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], leave the points at half size to show if any left the square
+				return x;
+			}
+		);
+	}
+
+	// Points in square
+	{
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+	}
 
 	// Mitchell's best candidate blue noise
 	MitchellsBestCandidate(1000, "out/MBC");
@@ -896,23 +996,6 @@ int main(int argc, char** argv)
 		);
 	}
 
-	// Points in square - batch size 64
-	{
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
-			[] (void* param, float y, const float2& direction)
-			{
-				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
-				y = y - 0.5f;
-
-				// Evaluate ICDF
-				float x = Square::InverseCDF(y, direction);
-
-				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
-				return x * 2.0f;
-			}
-		);
-	}
-
 	// Points in circle  - batch size 1
 	{
 		// make the Numerical ICDF
@@ -978,36 +1061,49 @@ int main(int argc, char** argv)
 
 /*
 Blog Post:
-* points in circle
- * mention how you can add a z component to make a normalized vector and that it will then be a cosine weighted hemispherical point
- * show average movement graph, maybe compare against golden ratio angles at that point?
 * then points in square
- * show the DFT and that it tiles decently! average movement graph too?
- * note that it's possible to get points outside of the square. up to you if you want to wrap or clamp.  I don't do either, but when drawing the points on the images, i clamp.
- * MBC looks to be higher quality! But, i don't think it can do varying density like sliced OT can.
- * also compare vs dart throwing (cook 86 "Stochastic sampling in computer graphics")
+ * average movement graphs?
  * graph of 1,4,16,64,256 batch sizes?
  * compare using golden ratio for directions, vs random white noise directions
  * explain and show multiclass?
+ * show average movement graph, maybe compare against golden ratio angles at that point? show square and circle in next section i think
 * using a batch of 1 doesn't look like a good idea (pixels are erratic in batch1_circle and square)
- * over convergence doesn't seem to be a problem, which is nice.
-* then mixed density
-* show derivation of square CDF? and circle.
+* then mixed density - the flower density thing
 * show a gif of the full 100 steps making noise? we could randomly color the points, so you can follow points by color
-* link to sliced optimal transport sampling. Also the more advanced one? (which is...??)
- * sliced OT sampling http://www.geometry.caltech.edu/pubs/PBCIW+20.pdf
- * more advanced: https://dl.acm.org/doi/pdf/10.1145/3550454.3555484
-* sliced OT also does multiclass. maybe mention it instead of implementing it? or is it worth implementing?
-* the way I did circle ICDF is different than what the sliced OT sampling paper does. They have a numerical ICDF in the end like me, they made with gradient descent. I make a large table with linear interpolation. Seems to work!
- * mention you could make a CDF from a PDF, if it's hard to make the CDF.
-* could play around with batch size and see if there are trade offs, and if overconvergence becomes a problem at 1
 * mention other methods to make blue noise exist. like gaussian blue noise.
-* note that to get a clearer picture of DFTs, you can make multiple and average them to get the expected DFT which is a lot cleaner and less noisy
 * not sure why they say they beat dart throwing, when dart throwing looks better to me.
 * put thing about eyes and the heuristic from nature about hexagon tiles in the middle where it's dense / high quality, and blue noise around the outside where it's sparse / lower quality.
 * mention that you could probably do density maps with dart throwing and MBC. Get the density at each point, turn those into distances, and subtract that from the distance between points
 ? maybe show animations that go from start to end position, over X frames and make them into a gif.
  * That will be a straight line and is the optimal transport. The other animations are the evolution of the OT solve.
+
+Next: a blog post on deriving that square inverse CDF
 Next: figure out how to use sliced OT to make noise masks
+
+
+DONE:
+* mention radon transform and homeography, and link to xrays
+* points in circle
+ * mention how you can add a z component to make a normalized vector and that it will then be a cosine weighted hemispherical point
+* points in square
+ * yes, overconvergence does look like a real problem, w/ points in square
+ * DFT
+ * MBC looks to be higher quality! But, i don't think it can do varying density like sliced OT can.
+ * also compare vs dart throwing (cook 86 "Stochastic sampling in computer graphics")
+
+* link to sliced optimal transport sampling. Also the more advanced one? (which is...??)
+ * sliced OT sampling http://www.geometry.caltech.edu/pubs/PBCIW+20.pdf
+ * more advanced: https://dl.acm.org/doi/pdf/10.1145/3550454.3555484
+
+
+Not Doing
+square:
+ * note that it's possible to get points outside of the square. up to you if you want to wrap or clamp.  I don't do either, but when drawing the points on the images, i clamp.
+ * showing tiling
+* the way I did circle ICDF is different than what the sliced OT sampling paper does. They have a numerical ICDF in the end like me, they made with gradient descent. I make a large table with linear interpolation. Seems to work!
+ * mention you could make a CDF from a PDF, if it's hard to make the CDF.
+* could play around with batch size and see if there are trade offs, and if overconvergence becomes a problem at 1
+* note that to get a clearer picture of DFTs, you can make multiple and average them to get the expected DFT which is a lot cleaner and less noisy
+
 */
 

@@ -57,7 +57,7 @@ inline float Lerp(float A, float B, float t)
 }
 
 template <typename T>
-inline float Clamp(T value, T themin, T themax)
+inline T Clamp(T value, T themin, T themax)
 {
 	if (value <= themin)
 		return themin;
