@@ -1061,21 +1061,13 @@ int main(int argc, char** argv)
 
 /*
 Blog Post:
-* then points in square
- * average movement graphs?
- * graph of 1,4,16,64,256 batch sizes?
- * compare using golden ratio for directions, vs random white noise directions
- * explain and show multiclass?
- * show average movement graph, maybe compare against golden ratio angles at that point? show square and circle in next section i think
-* using a batch of 1 doesn't look like a good idea (pixels are erratic in batch1_circle and square)
-* then mixed density - the flower density thing
 * show a gif of the full 100 steps making noise? we could randomly color the points, so you can follow points by color
-* mention other methods to make blue noise exist. like gaussian blue noise.
-* not sure why they say they beat dart throwing, when dart throwing looks better to me.
 * put thing about eyes and the heuristic from nature about hexagon tiles in the middle where it's dense / high quality, and blue noise around the outside where it's sparse / lower quality.
 * mention that you could probably do density maps with dart throwing and MBC. Get the density at each point, turn those into distances, and subtract that from the distance between points
 ? maybe show animations that go from start to end position, over X frames and make them into a gif.
  * That will be a straight line and is the optimal transport. The other animations are the evolution of the OT solve.
+
+ * future: https://dl.acm.org/doi/pdf/10.1145/3550454.3555484
 
 Next: a blog post on deriving that square inverse CDF
 Next: figure out how to use sliced OT to make noise masks
@@ -1090,6 +1082,13 @@ DONE:
  * DFT
  * MBC looks to be higher quality! But, i don't think it can do varying density like sliced OT can.
  * also compare vs dart throwing (cook 86 "Stochastic sampling in computer graphics")
+  * average movement graphs?
+ * graph of 1,4,16,64,256 batch sizes?
+ * then mixed density - the flower density thing
+* explain and show multiclass?
+* mention other methods to make blue noise exist. like gaussian blue noise.
+* not sure why they say they beat dart throwing, when dart throwing looks better to me.
+
 
 * link to sliced optimal transport sampling. Also the more advanced one? (which is...??)
  * sliced OT sampling http://www.geometry.caltech.edu/pubs/PBCIW+20.pdf
@@ -1098,6 +1097,7 @@ DONE:
 
 Not Doing
 square:
+ * compare using golden ratio for directions, vs random white noise directions
  * note that it's possible to get points outside of the square. up to you if you want to wrap or clamp.  I don't do either, but when drawing the points on the images, i clamp.
  * showing tiling
 * the way I did circle ICDF is different than what the sliced OT sampling paper does. They have a numerical ICDF in the end like me, they made with gradient descent. I make a large table with linear interpolation. Seems to work!
