@@ -480,6 +480,8 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 		}
 	}
 
+	std::vector<float2> startingPoints = points;
+
 	// Per batch data
 	// Each batch entry has it's own data so the batches can be parallelized
 	struct BatchData
@@ -588,6 +590,26 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 
 	// Write out the final results
 	SavePointSet(points, baseFileName, numProgressImages, numProgressImages);
+
+	// Make an animation of the actual optimal transport
+	{
+		char OTBaseFileName[512];
+		sprintf_s(OTBaseFileName, "%s_OTAnim", baseFileName);
+
+		std::vector<float2> currentPoints(points.size());
+		for (int imageIndex = 0; imageIndex <= numProgressImages; ++imageIndex)
+		{
+			float percent = float(imageIndex) / float(numProgressImages);
+
+			for (int pointIndex = 0; pointIndex < numPoints; ++pointIndex)
+			{
+				currentPoints[pointIndex].x = Lerp(startingPoints[pointIndex].x, points[pointIndex].x, percent);
+				currentPoints[pointIndex].y = Lerp(startingPoints[pointIndex].y, points[pointIndex].y, percent);
+			}
+
+			SavePointSet(currentPoints, OTBaseFileName, imageIndex, numProgressImages);
+		}
+	}
 
 	// report how long this took
 	float elpasedSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(std::chrono::high_resolution_clock::now() - start).count();
@@ -730,6 +752,7 @@ void DartThrowing(int numPoints, float minRadius, int maxThrowsPerPoint, const c
 int main(int argc, char** argv)
 {
 	_mkdir("out");
+
 
 	// Points in small square
 	{
@@ -1063,9 +1086,9 @@ int main(int argc, char** argv)
 Blog Post:
 * show a gif of the full 100 steps making noise? we could randomly color the points, so you can follow points by color
 * put thing about eyes and the heuristic from nature about hexagon tiles in the middle where it's dense / high quality, and blue noise around the outside where it's sparse / lower quality.
-* mention that you could probably do density maps with dart throwing and MBC. Get the density at each point, turn those into distances, and subtract that from the distance between points
 ? maybe show animations that go from start to end position, over X frames and make them into a gif.
  * That will be a straight line and is the optimal transport. The other animations are the evolution of the OT solve.
+* update times without any debug image write out etc.
 
  * future: https://dl.acm.org/doi/pdf/10.1145/3550454.3555484
 
@@ -1088,7 +1111,7 @@ DONE:
 * explain and show multiclass?
 * mention other methods to make blue noise exist. like gaussian blue noise.
 * not sure why they say they beat dart throwing, when dart throwing looks better to me.
-
+* mention that you could probably do density maps with dart throwing and MBC. Get the density at each point, turn those into distances, and subtract that from the distance between points
 
 * link to sliced optimal transport sampling. Also the more advanced one? (which is...??)
  * sliced OT sampling http://www.geometry.caltech.edu/pubs/PBCIW+20.pdf
