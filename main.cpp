@@ -271,7 +271,7 @@ float2 MakeDirection_GoldenRatio(int iterationIndex, int batchIndex, int batchSi
 }
 
 template <typename TMakeDirectionLambda, typename TBatchBeginLambda, typename TBatchEndLambda, typename TICDFLambda>
-void GenerateMulticlassPoints(int numPoints, int weightA, int weightB, int weightC, int numIterations, int batchSize, const char* baseFileName, int numProgressImages, const TMakeDirectionLambda& MakeDirectionLambda, const TBatchBeginLambda& BatchBeginLambda, const TBatchEndLambda& BatchEndLambda, const TICDFLambda& ICDFLambda)
+void GenerateMulticlassPoints(int numPoints, int weightA, int weightB, int weightC, int numIterations, int batchSize, const char* baseFileName, int numProgressImages, bool stratifyLine, const TMakeDirectionLambda& MakeDirectionLambda, const TBatchBeginLambda& BatchBeginLambda, const TBatchEndLambda& BatchEndLambda, const TICDFLambda& ICDFLambda)
 {
 	// get the timestamp of when this started
 	std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
@@ -394,10 +394,16 @@ void GenerateMulticlassPoints(int numPoints, int weightA, int weightB, int weigh
 			}
 
 			// update batchDirections
+			std::mt19937 rng = GetRNG(iterationIndex * batchSize + batchIndex);
+			std::uniform_real_distribution<float> distJitter(0.0f, 1.0f);
 			void* param = BatchBeginLambda(direction);
 			for (size_t i = 0; i < numPoints; ++i)
 			{
-				float targetProjection = ((float(i) + 0.5f) / float(numPoints));
+				float jitter = 0.5f;
+				if (stratifyLine)
+					jitter = distJitter(rng);
+
+				float targetProjection = ((float(i) + jitter) / float(numPoints));
 
 				targetProjection = ICDFLambda(param, targetProjection, direction);
 
@@ -455,7 +461,7 @@ void GenerateMulticlassPoints(int numPoints, int weightA, int weightB, int weigh
 }
 
 template <typename TMakeDirectionLambda, typename TBatchBeginLambda, typename TBatchEndLambda, typename TICDFLambda>
-void GeneratePoints(int numPoints, int numIterations, int batchSize, const char* baseFileName, int numProgressImages, const TMakeDirectionLambda& MakeDirectionLambda, const TBatchBeginLambda& BatchBeginLambda, const TBatchEndLambda& BatchEndLambda, const TICDFLambda& ICDFLambda)
+void GeneratePoints(int numPoints, int numIterations, int batchSize, const char* baseFileName, int numProgressImages, bool stratifyLine, const TMakeDirectionLambda& MakeDirectionLambda, const TBatchBeginLambda& BatchBeginLambda, const TBatchEndLambda& BatchEndLambda, const TICDFLambda& ICDFLambda)
 {
 	// get the timestamp of when this started
 	std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
@@ -536,10 +542,16 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 			);
 
 			// update batchDirections
+			std::mt19937 rng = GetRNG(iterationIndex * batchSize + batchIndex);
+			std::uniform_real_distribution<float> distJitter(0.0f, 1.0f);
 			void* param = BatchBeginLambda(direction);
 			for (size_t i = 0; i < numPoints; ++i)
 			{
-				float targetProjection = ((float(i) + 0.5f) / float(numPoints));
+				float jitter = 0.5f;
+				if (stratifyLine)
+					jitter = distJitter(rng);
+
+				float targetProjection = ((float(i) + jitter) / float(numPoints));
 
 				targetProjection = ICDFLambda(param, targetProjection, direction);
 
@@ -756,7 +768,7 @@ int main(int argc, char** argv)
 
 	// Points in small square
 	{
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square_small", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square_small", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -773,7 +785,7 @@ int main(int argc, char** argv)
 
 	// Points in square
 	{
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -796,7 +808,7 @@ int main(int argc, char** argv)
 
 	// Points in circle - naive
 	{
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/circle_naive", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/circle_naive", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[&](void* param, float y, const float2& direction)
 			{
 				return y * 2.0f - 1.0f;
@@ -806,7 +818,7 @@ int main(int argc, char** argv)
 
 	// Multiclass points in a square
 	{
-		GenerateMulticlassPoints(1000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GenerateMulticlassPoints(1000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -825,7 +837,7 @@ int main(int argc, char** argv)
 	{
 		DensityMap densityMap = LoadDensityMap("flower.png");
 
-		GenerateMulticlassPoints(20000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square_flower", 5, MakeDirection_Gauss,
+		GenerateMulticlassPoints(20000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square_flower", 5, false, MakeDirection_Gauss,
 			// Batch Begin
 			[&] (const float2& direction)
 			{
@@ -858,7 +870,7 @@ int main(int argc, char** argv)
 		);
 
 		// same, with fewer points
-		GenerateMulticlassPoints(1000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square_flower_fewerPoints", 5, MakeDirection_Gauss,
+		GenerateMulticlassPoints(1000, 1, 4, 16, 100 * c_sampleMultiplier, 64, "out/multiclass_square_flower_fewerPoints", 5, false, MakeDirection_Gauss,
 			// Batch Begin
 			[&] (const float2& direction)
 			{
@@ -895,7 +907,7 @@ int main(int argc, char** argv)
 	{
 		DensityMap densityMap = LoadDensityMap("flower.png");
 
-		GeneratePoints(20000, 100 * c_sampleMultiplier, 64, "out/square_flower", 5, MakeDirection_Gauss,
+		GeneratePoints(20000, 100 * c_sampleMultiplier, 64, "out/square_flower", 5, false, MakeDirection_Gauss,
 			// Batch Begin
 			[&] (const float2& direction)
 			{
@@ -930,7 +942,7 @@ int main(int argc, char** argv)
 
 	// Points in square - batch sizes 1,4,16, 64, 256
 	{
-		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_square", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -944,7 +956,7 @@ int main(int argc, char** argv)
 			}
 		);
 
-		GeneratePoints(1000, 1600 * c_sampleMultiplier, 4, "out/batch4_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 1600 * c_sampleMultiplier, 4, "out/batch4_square", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -958,7 +970,7 @@ int main(int argc, char** argv)
 			}
 		);
 
-		GeneratePoints(1000, 400 * c_sampleMultiplier, 16, "out/batch16_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 400 * c_sampleMultiplier, 16, "out/batch16_square", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -973,7 +985,7 @@ int main(int argc, char** argv)
 		);
 
 
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/batch64_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/batch64_square", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -987,7 +999,81 @@ int main(int argc, char** argv)
 			}
 		);
 
-		GeneratePoints(1000, 25 * c_sampleMultiplier, 256, "out/batch256_square", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 25 * c_sampleMultiplier, 256, "out/batch256_square", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+	}
+
+	// Points in square, stratified on the line - batch sizes 1,4,16, 64, 256
+	{
+		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_stratified_square", 5, true, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+
+		GeneratePoints(1000, 1600 * c_sampleMultiplier, 4, "out/batch4_stratified_square", 5, true, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+
+		GeneratePoints(1000, 400 * c_sampleMultiplier, 16, "out/batch16_stratified_square", 5, true, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+
+
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/batch64_stratified_square", 5, true, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+			[](void* param, float y, const float2& direction)
+			{
+				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
+				y = y - 0.5f;
+
+				// Evaluate ICDF
+				float x = Square::InverseCDF(y, direction);
+
+				// The CDF is in [-0.5, 0.5], but we want the points to be in [-1,1]
+				return x * 2.0f;
+			}
+		);
+
+		GeneratePoints(1000, 25 * c_sampleMultiplier, 256, "out/batch256_stratified_square", 5, true, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -1004,7 +1090,7 @@ int main(int argc, char** argv)
 
 	// Points in square, using golden ratio sequence for random angles
 	{
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square_GR", 5, MakeDirection_GoldenRatio, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/square_GR", 5, false, MakeDirection_GoldenRatio, DummyBatchBegin, DummyBatchEnd,
 			[](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -1024,7 +1110,7 @@ int main(int argc, char** argv)
 		// make the Numerical ICDF
 		CDF circleCDF = CDFFromCDFFn(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
-		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_circle", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 6400 * c_sampleMultiplier, 1, "out/batch1_circle", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[&](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -1044,7 +1130,7 @@ int main(int argc, char** argv)
 		// make the Numerical ICDF
 		CDF circleCDF = CDFFromCDFFn(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/circle_GR", 5, MakeDirection_GoldenRatio, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/circle_GR", 5, false, MakeDirection_GoldenRatio, DummyBatchBegin, DummyBatchEnd,
 			[&](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
@@ -1064,7 +1150,7 @@ int main(int argc, char** argv)
 		// make the Numerical ICDF
 		CDF circleCDF = CDFFromCDFFn(-0.5f, 0.5f, 1000, UnitCircleCDF);
 
-		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/circle", 5, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
+		GeneratePoints(1000, 100 * c_sampleMultiplier, 64, "out/circle", 5, false, MakeDirection_Gauss, DummyBatchBegin, DummyBatchEnd,
 			[&](void* param, float y, const float2& direction)
 			{
 				// Convert y: square is in [-0.5, 0.5], but y is in [0, 1].
