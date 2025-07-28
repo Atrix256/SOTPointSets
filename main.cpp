@@ -205,6 +205,20 @@ void SavePointSet(const std::vector<float2>& points, const char* baseFileName, i
 		fclose(file);
 	}
 
+	// Write out points in csv
+	{
+		char fileName[1024];
+		sprintf_s(fileName, "%s_%i_%i.csv", baseFileName, index, total);
+		FILE* file = nullptr;
+		fopen_s(&file, fileName, "wb");
+
+		fprintf(file, "\"x\",\"y\"\n");
+
+		for (size_t index = 0; index < points.size(); ++index)
+			fprintf(file, "%f,%f\n", points[index].x, points[index].y);
+		fclose(file);
+	}
+
 	// Draw an image of the points
 	{
 		std::vector<unsigned char> pixels(c_pointImageSize * c_pointImageSize, 255);
