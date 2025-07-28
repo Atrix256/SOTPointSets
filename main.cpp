@@ -7,6 +7,17 @@ static const int c_pointImageSize = 256;
 static const int c_pointImageGaussSize = 512;
 static const float c_pointImageGaussBlobSigma = 1.5f;
 
+static const bool c_save_OTAnim_Files = true;
+
+static const bool c_save_points_csv_Files = true;
+static const bool c_save_points_txt_Files = true;
+static const bool c_save_points_png = true;
+static const bool c_save_points_gauss_png = true;
+
+static const bool c_save_progress = true;
+
+static const bool c_save_progress_csv = true;
+
 #include <random>
 #include <vector>
 #include <direct.h>
@@ -95,7 +106,11 @@ void PlotGaussian(std::vector<unsigned char>& image, int width, int height, int 
 
 void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFileName, int index, int total)
 {
+	if (!c_save_progress && index != total)
+		return;
+
 	// Write out points in text
+	if (c_save_points_txt_Files)
 	{
 		char fileName[1024];
 		sprintf_s(fileName, "%s_%i_%i.txt", baseFileName, index, total);
@@ -188,7 +203,11 @@ void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFi
 
 void SavePointSet(const std::vector<float2>& points, const char* baseFileName, int index, int total)
 {
+	if (!c_save_progress && index != total)
+		return;
+
 	// Write out points in text
+	if (c_save_points_txt_Files)
 	{
 		char fileName[1024];
 		sprintf_s(fileName, "%s_%i_%i.txt", baseFileName, index, total);
@@ -206,6 +225,7 @@ void SavePointSet(const std::vector<float2>& points, const char* baseFileName, i
 	}
 
 	// Write out points in csv
+	if (c_save_points_csv_Files)
 	{
 		char fileName[1024];
 		sprintf_s(fileName, "%s_%i_%i.csv", baseFileName, index, total);
@@ -220,6 +240,7 @@ void SavePointSet(const std::vector<float2>& points, const char* baseFileName, i
 	}
 
 	// Draw an image of the points
+	if (c_save_points_png || c_save_points_gauss_png)
 	{
 		std::vector<unsigned char> pixels(c_pointImageSize * c_pointImageSize, 255);
 		std::vector<unsigned char> pixelsGauss(c_pointImageGaussSize * c_pointImageGaussSize, 255);
@@ -237,11 +258,17 @@ void SavePointSet(const std::vector<float2>& points, const char* baseFileName, i
 		}
 
 		char fileName[1024];
-		sprintf_s(fileName, "%s_%i_%i.png", baseFileName, index, total);
-		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 1, pixels.data(), 0);
+		if (c_save_points_png)
+		{
+			sprintf_s(fileName, "%s_%i_%i.png", baseFileName, index, total);
+			stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 1, pixels.data(), 0);
+		}
 
-		sprintf_s(fileName, "%s_%i_%i.gauss.png", baseFileName, index, total);
-		stbi_write_png(fileName, c_pointImageGaussSize, c_pointImageGaussSize, 1, pixelsGauss.data(), 0);
+		if (c_save_points_gauss_png)
+		{
+			sprintf_s(fileName, "%s_%i_%i.gauss.png", baseFileName, index, total);
+			stbi_write_png(fileName, c_pointImageGaussSize, c_pointImageGaussSize, 1, pixelsGauss.data(), 0);
+		}
 	}
 }
 
@@ -293,10 +320,13 @@ void GenerateMulticlassPoints(int numPoints, int weightA, int weightB, int weigh
 	printf("==================================\n%s\n==================================\n", baseFileName);
 
 	FILE* file = nullptr;
-	char outputFileNameCSV[1024];
-	sprintf(outputFileNameCSV, "%s.csv", baseFileName);
-	fopen_s(&file, outputFileNameCSV, "wb");
-	fprintf(file, "\"Iteration\",\"Avg. Movement\"\n");
+	if (c_save_progress_csv)
+	{
+		char outputFileNameCSV[1024];
+		sprintf(outputFileNameCSV, "%s.csv", baseFileName);
+		fopen_s(&file, outputFileNameCSV, "wb");
+		fprintf(file, "\"Iteration\",\"Avg. Movement\"\n");
+	}
 
 	// Generate the starting points
 	std::vector<MultiClassPoint> points(numPoints);
@@ -459,12 +489,14 @@ void GenerateMulticlassPoints(int numPoints, int weightA, int weightB, int weigh
 		{
 			lastPercent = percent;
 			printf("\r[%i%%] %f", percent, totalDistance / float(numPoints));
-			fprintf(file, "\"%i\",\"%f\"\n", iterationIndex, totalDistance / float(numPoints));
+			if (file)
+				fprintf(file, "\"%i\",\"%f\"\n", iterationIndex, totalDistance / float(numPoints));
 		}
 	}
 	printf("\n");
 
-	fclose(file);
+	if (file)
+		fclose(file);
 
 	// Write out the final results
 	SavePointSet(points, baseFileName, numProgressImages, numProgressImages);
@@ -483,10 +515,13 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 	printf("==================================\n%s\n==================================\n", baseFileName);
 
 	FILE* file = nullptr;
-	char outputFileNameCSV[1024];
-	sprintf(outputFileNameCSV, "%s.csv", baseFileName);
-	fopen_s(&file, outputFileNameCSV, "wb");
-	fprintf(file, "\"Iteration\",\"Avg. Movement\"\n");
+	if (c_save_progress_csv)
+	{
+		char outputFileNameCSV[1024];
+		sprintf(outputFileNameCSV, "%s.csv", baseFileName);
+		fopen_s(&file, outputFileNameCSV, "wb");
+		fprintf(file, "\"Iteration\",\"Avg. Movement\"\n");
+	}
 
 	// Generate the starting points
 	std::vector<float2> points(numPoints);
@@ -607,17 +642,20 @@ void GeneratePoints(int numPoints, int numIterations, int batchSize, const char*
 		{
 			lastPercent = percent;
 			printf("\r[%i%%] %f", percent, totalDistance / float(numPoints));
-			fprintf(file, "\"%i\",\"%f\"\n", iterationIndex, totalDistance / float(numPoints));
+			if (file)
+				fprintf(file, "\"%i\",\"%f\"\n", iterationIndex, totalDistance / float(numPoints));
 		}
 	}
 	printf("\n");
 
-	fclose(file);
+	if (file)
+		fclose(file);
 
 	// Write out the final results
 	SavePointSet(points, baseFileName, numProgressImages, numProgressImages);
 
 	// Make an animation of the actual optimal transport
+	if (c_save_OTAnim_Files)
 	{
 		char OTBaseFileName[512];
 		sprintf_s(OTBaseFileName, "%s_OTAnim", baseFileName);
