@@ -13,6 +13,8 @@ static const bool c_save_points_csv_Files = true;
 static const bool c_save_points_txt_Files = true;
 static const bool c_save_points_png = true;
 static const bool c_save_points_gauss_png = true;
+static const bool c_save_points_multiclass_bw = true;
+static const bool c_save_points_multiclass_color = true;
 
 static const bool c_save_progress = true;
 
@@ -186,18 +188,36 @@ void SavePointSet(const std::vector<MultiClassPoint>& points, const char* baseFi
 
 		// Write color images
 		char fileName[1024];
-		sprintf_s(fileName, "%s_%i_%i.%c%c%c.color.png", baseFileName, index, total, (i & 1)?'T':'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
-		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 3, pixelsColor.data(), 0);
+		if (c_save_points_multiclass_color)
+		{
+			if (c_save_points_png)
+			{
+				sprintf_s(fileName, "%s_%i_%i.%c%c%c.color.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
+				stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 3, pixelsColor.data(), 0);
+			}
 
-		sprintf_s(fileName, "%s_%i_%i.%c%c%c.gauss.color.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
-		stbi_write_png(fileName, c_pointImageGaussSize, c_pointImageGaussSize, 3, pixelsColorGauss.data(), 0);
+			if (c_save_points_gauss_png)
+			{
+				sprintf_s(fileName, "%s_%i_%i.%c%c%c.gauss.color.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
+				stbi_write_png(fileName, c_pointImageGaussSize, c_pointImageGaussSize, 3, pixelsColorGauss.data(), 0);
+			}
+		}
 
 		// Write black and white image
-		sprintf_s(fileName, "%s_%i_%i.%c%c%c.bw.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
-		stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 1, pixelsBW.data(), 0);
+		if (c_save_points_multiclass_bw)
+		{
+			if (c_save_points_png)
+			{
+				sprintf_s(fileName, "%s_%i_%i.%c%c%c.bw.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
+				stbi_write_png(fileName, c_pointImageSize, c_pointImageSize, 1, pixelsBW.data(), 0);
+			}
 
-		sprintf_s(fileName, "%s_%i_%i.%c%c%c.gauss.bw.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
-		stbi_write_png(fileName, c_pointImageGaussSize, c_pointImageGaussSize, 1, pixelsBWGauss.data(), 0);
+			if (c_save_points_gauss_png)
+			{
+				sprintf_s(fileName, "%s_%i_%i.%c%c%c.gauss.bw.png", baseFileName, index, total, (i & 1) ? 'T' : 'F', (i & 2) ? 'T' : 'F', (i & 4) ? 'T' : 'F');
+				stbi_write_png(fileName, c_pointImageGaussSize, c_pointImageGaussSize, 1, pixelsBWGauss.data(), 0);
+			}
+		}
 	}
 }
 
